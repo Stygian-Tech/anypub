@@ -3,6 +3,7 @@
 import * as React from "react";
 import { format, parseISO } from "date-fns";
 import {
+  AArrowDownIcon,
   BaselineIcon,
   BoldIcon,
   BookOpenIcon,
@@ -20,6 +21,8 @@ import {
   RocketIcon,
   SaveIcon,
   SearchIcon,
+  SquareCheckIcon,
+  SquareIcon,
   SunIcon,
   TypeIcon,
 } from "lucide-react";
@@ -71,9 +74,11 @@ import {
 import { calendarItemsFromDrafts, seedAccounts, seedDrafts, seedPublications } from "@/lib/cms-data";
 import {
   compactMarkdownBlocks,
+  isEmptyListMarkdownBlock,
   isListMarkdownBlock,
   joinMarkdownBlocks,
   moveMarkdownBlock,
+  outdentEmptyListMarkdownBlock,
   parseMarkdownBlock,
   parseMarkdownBlocks,
   setMarkdownBlockListLevel,
@@ -108,6 +113,7 @@ const columnLayoutStorageKey = "anypub:column-layout";
 const themeStorageKey = "anypub:theme";
 const fontStorageKey = "anypub:font";
 const boldTextStorageKey = "anypub:bold-text";
+const smallTextStorageKey = "anypub:small-text";
 const resizeStep = 16;
 const sideTabsListClassName = "grid w-full grid-cols-3 gap-1 p-1";
 const sideTabsTriggerClassName =
@@ -167,6 +173,13 @@ function readBoldTextPreference() {
   return window.localStorage.getItem(boldTextStorageKey) === "1";
 }
 
+function readSmallTextPreference() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(smallTextStorageKey) === "1";
+}
+
 function applyThemePreference(preference: ThemePreference) {
   if (typeof window === "undefined") {
     return;
@@ -206,6 +219,19 @@ function applyBoldTextPreference(enabled: boolean) {
   }
 }
 
+function applySmallTextPreference(enabled: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  document.documentElement.dataset.smallText = enabled ? "true" : "false";
+  if (enabled) {
+    window.localStorage.setItem(smallTextStorageKey, "1");
+  } else {
+    window.localStorage.removeItem(smallTextStorageKey);
+  }
+}
+
 export function CmsShell() {
   const [publications] = React.useState(seedPublications);
   const [drafts, setDrafts] = React.useState(seedDrafts);
@@ -223,6 +249,7 @@ export function CmsShell() {
   const [themePreference, setThemePreference] = React.useState<ThemePreference>("light");
   const [fontPreference, setFontPreference] = React.useState<FontPreference>("sans");
   const [boldText, setBoldText] = React.useState(false);
+  const [smallText, setSmallText] = React.useState(false);
   const [columnLayout, setColumnLayout] = React.useState<ColumnLayout>(defaultColumnLayout);
   const [preferencesHydrated, setPreferencesHydrated] = React.useState(false);
 
@@ -231,6 +258,7 @@ export function CmsShell() {
       setThemePreference(readThemePreference());
       setFontPreference(readFontPreference());
       setBoldText(readBoldTextPreference());
+      setSmallText(readSmallTextPreference());
       setColumnLayout(readColumnLayout());
       setPreferencesHydrated(true);
     });
@@ -266,7 +294,8 @@ export function CmsShell() {
 
     applyFontPreference(fontPreference);
     applyBoldTextPreference(boldText);
-  }, [boldText, fontPreference, preferencesHydrated]);
+    applySmallTextPreference(smallText);
+  }, [boldText, fontPreference, preferencesHydrated, smallText]);
 
   React.useEffect(() => {
     if (!preferencesHydrated) {
@@ -336,6 +365,11 @@ export function CmsShell() {
   function changeBoldText(enabled: boolean) {
     applyBoldTextPreference(enabled);
     setBoldText(enabled);
+  }
+
+  function changeSmallText(enabled: boolean) {
+    applySmallTextPreference(enabled);
+    setSmallText(enabled);
   }
 
   function beginColumnResize(
@@ -521,11 +555,13 @@ export function CmsShell() {
               activeTab={draftListTab}
               account={activeAccount}
               boldText={boldText}
+              smallText={smallText}
               fontPreference={fontPreference}
               selectedDraftID={activeDraft?.id}
               search={search}
               onTabChange={setDraftListTab}
               onBoldTextChange={changeBoldText}
+              onSmallTextChange={changeSmallText}
               onFontPreferenceChange={changeFontPreference}
               onSearch={setSearch}
               onSelectDraft={setSelectedDraftID}
@@ -646,14 +682,18 @@ function UserAppearanceCard({
   account,
   fontPreference,
   boldText,
+  smallText,
   onFontPreferenceChange,
   onBoldTextChange,
+  onSmallTextChange,
 }: {
   account?: LinkedAccount;
   fontPreference: FontPreference;
   boldText: boolean;
+  smallText: boolean;
   onFontPreferenceChange: (preference: FontPreference) => void;
   onBoldTextChange: (enabled: boolean) => void;
+  onSmallTextChange: (enabled: boolean) => void;
 }) {
   const displayName = account?.displayName || account?.handle || "No account";
   const handle = account?.handle ? `@${account.handle}` : "OAuth account required";
@@ -676,7 +716,7 @@ function UserAppearanceCard({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Appearance</DialogTitle>
-          <DialogDescription className="sr-only">Choose the editor font and text weight.</DialogDescription>
+          <DialogDescription className="sr-only">Choose the editor font, text size, and weight.</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-5">
@@ -686,6 +726,7 @@ function UserAppearanceCard({
               <span className="text-muted-foreground text-xs">
                 {fontLabel(fontPreference)}
                 {boldText ? " + Bold" : ""}
+                {smallText ? " + Small" : ""}
               </span>
             </div>
             <div role="radiogroup" aria-label="Font" className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -736,6 +777,23 @@ function UserAppearanceCard({
             <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">Bold Text</span>
             <span className="text-muted-foreground text-xs">{boldText ? "On" : "Off"}</span>
           </button>
+
+          <button
+            type="button"
+            data-testid="font-small"
+            aria-pressed={smallText}
+            onClick={() => onSmallTextChange(!smallText)}
+            className={cn(
+              "flex min-h-11 w-full items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors",
+              smallText
+                ? "border-primary bg-accent text-accent-foreground"
+                : "border-border bg-background text-muted-foreground hover:border-primary/45 hover:text-foreground",
+            )}
+          >
+            <AArrowDownIcon data-icon="inline-start" className="text-primary" />
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">Smaller Text</span>
+            <span className="text-muted-foreground text-xs">{smallText ? "On" : "Off"}</span>
+          </button>
         </div>
       </DialogContent>
     </Dialog>
@@ -756,7 +814,7 @@ function PublicationHeaderSelect({
   return (
     <div className="flex min-w-0 justify-center">
       <Select value={selectedPublicationURI} onValueChange={onPublicationChange}>
-        <SelectTrigger aria-label="Select blog" className="w-full max-w-[320px]">
+        <SelectTrigger aria-label="Select blog" className="h-auto w-full max-w-[320px] py-1.5">
           {selectedPublication ? (
             <PublicationPickerLabel publication={selectedPublication} />
           ) : (
@@ -766,7 +824,7 @@ function PublicationHeaderSelect({
         <SelectContent align="center">
           <SelectGroup>
             {publications.map((publication) => (
-              <SelectItem key={publication.uri} value={publication.uri}>
+              <SelectItem key={publication.uri} value={publication.uri} className="py-2 pl-2.5">
                 <PublicationPickerLabel publication={publication} />
               </SelectItem>
             ))}
@@ -781,9 +839,9 @@ function PublicationPickerLabel({ publication }: { publication: Publication }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
       <PublicationIcon publication={publication} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm leading-tight">{publication.name}</span>
-        <span className="text-muted-foreground block truncate text-xs leading-tight">
+      <span className="flex min-w-0 flex-1 flex-nowrap items-baseline gap-1.5 whitespace-nowrap">
+        <span className="truncate text-sm leading-tight">{publication.name}</span>
+        <span className="text-muted-foreground shrink-0 text-xs leading-tight">
           {publicationHostLabel(publication)}
         </span>
       </span>
@@ -910,11 +968,13 @@ function DraftList({
   account,
   fontPreference,
   boldText,
+  smallText,
   selectedDraftID,
   search,
   onTabChange,
   onFontPreferenceChange,
   onBoldTextChange,
+  onSmallTextChange,
   onSearch,
   onSelectDraft,
 }: {
@@ -923,11 +983,13 @@ function DraftList({
   account?: LinkedAccount;
   fontPreference: FontPreference;
   boldText: boolean;
+  smallText: boolean;
   selectedDraftID?: string;
   search: string;
   onTabChange: (value: DraftListTab) => void;
   onFontPreferenceChange: (preference: FontPreference) => void;
   onBoldTextChange: (enabled: boolean) => void;
+  onSmallTextChange: (enabled: boolean) => void;
   onSearch: (value: string) => void;
   onSelectDraft: (id: string) => void;
 }) {
@@ -986,8 +1048,10 @@ function DraftList({
         account={account}
         fontPreference={fontPreference}
         boldText={boldText}
+        smallText={smallText}
         onFontPreferenceChange={onFontPreferenceChange}
         onBoldTextChange={onBoldTextChange}
+        onSmallTextChange={onSmallTextChange}
       />
     </section>
   );
@@ -1055,6 +1119,7 @@ function MarkdownBlockEditor({
   const [activeBlockIndex, setActiveBlockIndex] = React.useState<number | null>(null);
   const [draggedBlockIndex, setDraggedBlockIndex] = React.useState<number | null>(null);
   const [dragOverBlockIndex, setDragOverBlockIndex] = React.useState<number | null>(null);
+  const [pendingCaret, setPendingCaret] = React.useState<number | null>(null);
   const dragStateRef = React.useRef<{
     fromIndex: number;
     overIndex: number | null;
@@ -1083,7 +1148,8 @@ function MarkdownBlockEditor({
     setActiveBlockIndex(null);
   }
 
-  function setActiveBlock(index: number) {
+  function setActiveBlock(index: number, caretOffset: number | null = null) {
+    setPendingCaret(caretOffset);
     const compactedBlocks = compactMarkdownBlocks(blocks);
     if (compactedBlocks.length !== blocks.length) {
       setBlocks(compactedBlocks);
@@ -1093,6 +1159,7 @@ function MarkdownBlockEditor({
   }
 
   function addEmptyBlock(afterIndex: number) {
+    setPendingCaret(null);
     const compactedBlocks = compactMarkdownBlocks(blocks);
     const boundedAfterIndex = Math.min(Math.max(afterIndex, -1), compactedBlocks.length - 1);
     const insertAt = boundedAfterIndex + 1;
@@ -1218,6 +1285,25 @@ function MarkdownBlockEditor({
     return true;
   }
 
+  function toggleTaskItem(index: number, lineIndex: number) {
+    const block = blocks[index];
+    if (!block || !isListMarkdownBlock(block)) {
+      return;
+    }
+
+    const lines = block.source.split("\n");
+    const line = lines[lineIndex];
+    if (!line) {
+      return;
+    }
+
+    lines[lineIndex] = line.replace(
+      /^([ \t]*(?:[-*+]|\d+\.)\s+)\[([ xX])\]/,
+      (_, prefix: string, state: string) => `${prefix}[${state === " " ? "x" : " "}]`,
+    );
+    updateParsedBlock(index, parseMarkdownBlock(lines.join("\n")));
+  }
+
   function insertTabText(index: number, event: React.KeyboardEvent<HTMLTextAreaElement>) {
     const target = event.currentTarget;
     const selectionStart = target.selectionStart;
@@ -1226,7 +1312,7 @@ function MarkdownBlockEditor({
     updateBlock(index, nextValue);
   }
 
-  function insertBlockBreak(index: number, event: React.KeyboardEvent<HTMLTextAreaElement>) {
+  function insertBlockBreak(index: number, event: React.KeyboardEvent<HTMLTextAreaElement>, selectionOffset = 0) {
     const block = blocks[index];
     if (!block) {
       return;
@@ -1234,21 +1320,65 @@ function MarkdownBlockEditor({
 
     const target = event.currentTarget;
     const nextBlocks = [...blocks];
-    const splitBlocks = splitMarkdownBlockAtCursor(block, target.selectionStart, target.selectionEnd);
+    const splitBlocks = splitMarkdownBlockAtCursor(
+      block,
+      target.selectionStart + selectionOffset,
+      target.selectionEnd + selectionOffset,
+    );
 
     nextBlocks.splice(index, 1, ...splitBlocks);
     commitBlocks(nextBlocks, [index, index + 1]);
+    setPendingCaret(null);
     setActiveBlockIndex(index + 1);
+  }
+
+  function deleteEmptyBlock(index: number) {
+    if (index <= 0 || blocks[index]?.source.trim()) {
+      return false;
+    }
+
+    const previousBlock = blocks[index - 1];
+    if (!previousBlock) {
+      return false;
+    }
+
+    const nextBlocks = blocks.filter((_, blockIndex) => blockIndex !== index);
+    const previousIndent = isListMarkdownBlock(previousBlock)
+      ? previousBlock.source.match(/^[ \t]*/)?.[0].length ?? 0
+      : 0;
+
+    commitBlocks(nextBlocks);
+    setPendingCaret(previousBlock.source.length - previousIndent);
+    setActiveBlockIndex(index - 1);
+    return true;
+  }
+
+  function exitEmptyListItem(index: number) {
+    const block = blocks[index];
+    if (!block || !isEmptyListMarkdownBlock(block)) {
+      return false;
+    }
+
+    const nextBlocks = [...blocks];
+    nextBlocks[index] = outdentEmptyListMarkdownBlock(block);
+    commitBlocks(nextBlocks, index);
+    setPendingCaret(null);
+    setActiveBlockIndex(index);
+    return true;
   }
 
   return (
     <Field data-invalid={invalid} className="min-h-0 flex-1">
       <FieldLabel htmlFor="markdown-block-0" className="sr-only">Markdown</FieldLabel>
-      <div data-testid="markdown-block-editor" className="flex min-h-[64vh] flex-col px-0 py-4">
+      <div data-testid="markdown-block-editor" className="flex min-h-[64vh] flex-1 flex-col px-0 py-4">
         {blocks.map((block, index) => {
           const isActive = index === activeBlockIndex;
           const isListItem = isListMarkdownBlock(block);
           const listLevel = isListItem ? block.listLevel : 0;
+          // The row's margin already renders the list indent, so the open textarea
+          // edits the source without its leading whitespace to stay in line.
+          const sourceIndent = isListItem ? block.source.match(/^[ \t]*/)?.[0] ?? "" : "";
+          const editableSource = block.source.slice(sourceIndent.length);
 
           return (
             <div
@@ -1275,10 +1405,11 @@ function MarkdownBlockEditor({
                 <div className="min-w-0 flex-1">
                   <InlineMarkdownBlockTextarea
                     id={`markdown-block-${index}`}
-                    value={block.source}
+                    value={editableSource}
                     invalid={invalid}
+                    initialCaret={pendingCaret}
                     onBlur={deleteEmptyBlocks}
-                    onChange={(nextValue) => updateBlock(index, nextValue)}
+                    onChange={(nextValue) => updateBlock(index, sourceIndent + nextValue)}
                     onKeyDown={(event) => {
                       if (event.key === "Tab") {
                         event.preventDefault();
@@ -1307,9 +1438,18 @@ function MarkdownBlockEditor({
                         event.preventDefault();
                         deleteEmptyBlocks();
                       }
+                      if (event.key === "Backspace" && !event.currentTarget.value) {
+                        if (deleteEmptyBlock(index)) {
+                          event.preventDefault();
+                        }
+                        return;
+                      }
                       if (event.key === "Enter") {
                         event.preventDefault();
-                        insertBlockBreak(index, event);
+                        if (exitEmptyListItem(index)) {
+                          return;
+                        }
+                        insertBlockBreak(index, event, sourceIndent.length);
                       }
                     }}
                     compact={isListItem}
@@ -1319,14 +1459,17 @@ function MarkdownBlockEditor({
                 <button
                   type="button"
                   data-testid="markdown-block-preview"
-                  onClick={() => setActiveBlock(index)}
+                  onClick={(event) => setActiveBlock(index, caretOffsetFromPreviewClick(event, editableSource))}
                   className={cn(
                     "hover:bg-accent/70 focus-visible:bg-accent/70 block min-w-0 flex-1 text-left outline-none transition-colors",
                     isListItem ? "rounded-sm py-0 pr-3 pl-0" : "rounded-md py-2 pr-3 pl-0",
                     invalid && !block.source.trim() && "ring-destructive/35 ring-1",
                   )}
                 >
-                  <MarkdownBlockPreview block={block} />
+                  <MarkdownBlockPreview
+                    block={block}
+                    onToggleTask={(lineIndex) => toggleTaskItem(index, lineIndex)}
+                  />
                 </button>
               )}
             </div>
@@ -1336,10 +1479,12 @@ function MarkdownBlockEditor({
           type="button"
           data-testid="markdown-add-block"
           onClick={() => addEmptyBlock(blocks.length - 1)}
-          className="text-muted-foreground hover:bg-accent/60 focus-visible:bg-accent/60 flex min-h-24 w-full items-start gap-2 rounded-md px-3 py-3 text-left text-sm outline-none transition-colors"
+          className="text-muted-foreground hover:bg-accent/60 focus-visible:bg-accent/60 flex min-h-24 w-full flex-1 items-start rounded-md px-3 py-3 text-left text-sm outline-none transition-colors"
         >
-          <PlusIcon data-icon="inline-start" />
-          Add block
+          <span className="flex items-center gap-2">
+            <PlusIcon data-icon="inline-start" className="size-4" />
+            Add Block
+          </span>
         </button>
       </div>
       {invalid ? <FieldDescription>Markdown body is required.</FieldDescription> : null}
@@ -1438,6 +1583,7 @@ function InlineMarkdownBlockTextarea({
   value,
   invalid,
   compact,
+  initialCaret,
   onBlur,
   onChange,
   onKeyDown,
@@ -1446,11 +1592,24 @@ function InlineMarkdownBlockTextarea({
   value: string;
   invalid: boolean;
   compact: boolean;
+  initialCaret?: number | null;
   onBlur: () => void;
   onChange: (value: string) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const initialCaretApplied = React.useRef(false);
+
+  React.useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || initialCaretApplied.current) {
+      return;
+    }
+
+    initialCaretApplied.current = true;
+    const caret = initialCaret ?? textarea.value.length;
+    textarea.setSelectionRange(caret, caret);
+  }, [initialCaret]);
 
   React.useEffect(() => {
     const textarea = textareaRef.current;
@@ -1482,7 +1641,79 @@ function InlineMarkdownBlockTextarea({
   );
 }
 
-function MarkdownBlockPreview({ block }: { block: MarkdownBlock }) {
+function caretOffsetFromPreviewClick(
+  event: React.MouseEvent<HTMLButtonElement>,
+  editableSource: string,
+) {
+  const preview = event.currentTarget;
+  const previewOffset = previewTextOffsetFromPoint(preview, event.clientX, event.clientY);
+  if (previewOffset === null) {
+    return null;
+  }
+
+  return mapPreviewOffsetToSourceOffset(editableSource, preview.textContent ?? "", previewOffset);
+}
+
+function previewTextOffsetFromPoint(root: HTMLElement, clientX: number, clientY: number) {
+  const doc = root.ownerDocument;
+  const caretDoc = doc as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  };
+
+  let node: Node | null = null;
+  let offset = 0;
+  const position = caretDoc.caretPositionFromPoint?.(clientX, clientY);
+  if (position) {
+    node = position.offsetNode;
+    offset = position.offset;
+  } else {
+    const range = doc.caretRangeFromPoint?.(clientX, clientY);
+    if (range) {
+      node = range.startContainer;
+      offset = range.startOffset;
+    }
+  }
+
+  if (!node || node.nodeType !== Node.TEXT_NODE || !root.contains(node)) {
+    return null;
+  }
+
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let total = 0;
+  while (walker.nextNode()) {
+    if (walker.currentNode === node) {
+      return total + offset;
+    }
+    total += walker.currentNode.textContent?.length ?? 0;
+  }
+
+  return null;
+}
+
+// The preview strips markdown syntax, so its text is a subsequence of the source;
+// consume matching characters until the clicked preview offset is reached.
+function mapPreviewOffsetToSourceOffset(source: string, previewText: string, previewOffset: number) {
+  const boundedOffset = Math.max(0, Math.min(previewOffset, previewText.length));
+  let sourceIndex = 0;
+  let previewIndex = 0;
+
+  while (sourceIndex < source.length && previewIndex < boundedOffset) {
+    if (source[sourceIndex] === previewText[previewIndex]) {
+      previewIndex += 1;
+    }
+    sourceIndex += 1;
+  }
+
+  return sourceIndex;
+}
+
+function MarkdownBlockPreview({
+  block,
+  onToggleTask,
+}: {
+  block: MarkdownBlock;
+  onToggleTask?: (itemIndex: number) => void;
+}) {
   const trimmed = block.source.trim();
 
   if (block.kind === "empty") {
@@ -1513,6 +1744,10 @@ function MarkdownBlockPreview({ block }: { block: MarkdownBlock }) {
     return <h4 className="text-base font-semibold leading-tight">{renderInlineMarkdown(text)}</h4>;
   }
 
+  if (block.kind === "thematic-break") {
+    return <hr data-testid="markdown-thematic-break" className="my-3 border-t border-border" />;
+  }
+
   if (block.kind === "quote") {
     return (
       <blockquote className="text-muted-foreground border-l-2 pl-3 text-base leading-7">
@@ -1536,17 +1771,42 @@ function MarkdownBlockPreview({ block }: { block: MarkdownBlock }) {
 
     return (
       <ul className="list-none text-base leading-7">
-        {items.map((item, index) => (
-          <li key={`${item}-${index}`} className="flex items-start gap-2.5">
-            <span aria-hidden="true" className="flex h-7 w-1.5 shrink-0 items-center">
-              <span
-                data-testid="markdown-list-marker"
-                className={cn("size-1.5", unorderedListMarkerClass(block.listLevel))}
-              />
-            </span>
-            <span className="min-w-0 flex-1">{renderInlineMarkdown(item)}</span>
-          </li>
-        ))}
+        {items.map((item, index) => {
+          const task = item.match(/^\[([ xX])\]\s*(.*)$/);
+
+          return (
+            <li key={`${item}-${index}`} className="flex items-start gap-2.5">
+              {task ? (
+                <span
+                  role="checkbox"
+                  aria-checked={task[1] !== " "}
+                  aria-label={task[2] || "Task item"}
+                  data-testid="markdown-task-toggle"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleTask?.(index);
+                  }}
+                  className="hover:text-foreground flex h-7 shrink-0 cursor-pointer items-center"
+                >
+                  {task[1] === " " ? (
+                    <SquareIcon data-testid="markdown-task-marker" className="text-muted-foreground size-4.5 transition-colors hover:text-current" />
+                  ) : (
+                    <SquareCheckIcon data-testid="markdown-task-marker" data-checked="true" className="size-4.5" />
+                  )}
+                </span>
+              ) : (
+                <span aria-hidden="true" className="flex h-7 w-2.5 shrink-0 items-center justify-center">
+                  <span
+                    data-testid="markdown-list-marker"
+                    className={unorderedListMarkerClass(block.listLevel)}
+                    style={block.listLevel > 0 && block.listLevel % 2 === 1 ? { borderColor: "currentColor" } : undefined}
+                  />
+                </span>
+              )}
+              <span className="min-w-0 flex-1">{renderInlineMarkdown(task ? task[2] ?? "" : item)}</span>
+            </li>
+          );
+        })}
       </ul>
     );
   }
@@ -1560,14 +1820,14 @@ function orderedListStyleForLevel(level: number) {
 
 function unorderedListMarkerClass(level: number) {
   if (level === 0) {
-    return "rounded-full bg-current";
+    return "size-1.5 rounded-full bg-current";
   }
 
   if (level % 2 === 0) {
-    return "bg-current";
+    return "size-1.5 bg-current";
   }
 
-  return "rounded-full border border-current";
+  return "text-foreground size-2 shrink-0 rounded-full border-[1.5px] border-current opacity-100";
 }
 
 function renderMarkdownLines(lines: string[]) {

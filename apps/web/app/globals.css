@@ -124,6 +124,11 @@ html[data-bold-text="true"] {
   --app-font-weight: 600;
 }
 
+/* Root-level so every rem-based size (text-sm, text-xs, …) scales down with the base. */
+html[data-small-text="true"] {
+  font-size: 0.85rem;
+}
+
 .app-appearance-scope {
   font-family: var(--app-font-family);
   font-weight: var(--app-font-weight);

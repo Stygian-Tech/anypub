@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   compactMarkdownBlocks,
+  isEmptyListMarkdownBlock,
   joinMarkdownBlocks,
   moveMarkdownBlock,
+  outdentEmptyListMarkdownBlock,
   parseMarkdownBlock,
   parseMarkdownBlocks,
   setMarkdownBlockListLevel,
@@ -60,6 +62,18 @@ describe("markdown block helpers", () => {
     expect(summarizeMarkdownBlock("> Pull quote")).toEqual({ kind: "quote" });
     expect(summarizeMarkdownBlock("- One\n- Two")).toEqual({ kind: "unordered-list" });
     expect(summarizeMarkdownBlock("1. One\n2. Two")).toEqual({ kind: "ordered-list" });
+    expect(summarizeMarkdownBlock("---")).toEqual({ kind: "thematic-break" });
+  });
+
+  it("parses and preserves thematic break blocks", () => {
+    const markdown = "Above\n\n---\n\nBelow";
+
+    expect(parseMarkdownBlocks(markdown)).toEqual([
+      { kind: "paragraph", source: "Above" },
+      { kind: "thematic-break", source: "---" },
+      { kind: "paragraph", source: "Below" },
+    ]);
+    expect(joinMarkdownBlocks(parseMarkdownBlocks(markdown))).toBe(markdown);
   });
 
   it("parses blocks into typed formatting records", () => {
@@ -83,12 +97,34 @@ describe("markdown block helpers", () => {
     expect(joinMarkdownBlocks(parseMarkdownBlocks(markdown))).toBe(markdown);
   });
 
+  it("preserves block types when joining adjacent mixed lists", () => {
+    const markdown = "- Bullet\n\t- Nested bullet\n\n1. Numbered\n\t1. Nested numbered\n\n- Final bullet";
+    const parsed = parseMarkdownBlocks(markdown);
+
+    expect(joinMarkdownBlocks(parsed)).toBe(markdown);
+    expect(parseMarkdownBlocks(joinMarkdownBlocks(parsed))).toEqual(parsed);
+  });
+
   it("rewrites list indentation through typed list levels", () => {
     expect(setMarkdownBlockListLevel(parseMarkdownBlock("- Child"), 1)).toEqual({
       kind: "unordered-list",
       source: "\t- Child",
       listLevel: 1,
     });
+  });
+
+  it("dedents empty list items and converts top-level items to text blocks", () => {
+    const nested = parseMarkdownBlock("\t\t- ");
+    const topLevel = parseMarkdownBlock("- ");
+
+    expect(isEmptyListMarkdownBlock(nested)).toBe(true);
+    expect(outdentEmptyListMarkdownBlock(nested)).toEqual({
+      kind: "unordered-list",
+      source: "\t- ",
+      listLevel: 1,
+    });
+    expect(outdentEmptyListMarkdownBlock(topLevel)).toEqual({ kind: "empty", source: "" });
+    expect(isEmptyListMarkdownBlock(parseMarkdownBlock("- Content"))).toBe(false);
   });
 
   it("moves blocks while compacting empty blocks", () => {

@@ -19,7 +19,7 @@ function DialogContent({
       <DialogPrimitive.Overlay className="fixed inset-0 bg-background/80 backdrop-blur-sm" />
       <DialogPrimitive.Content
         className={cn(
-          "bg-background fixed top-1/2 left-1/2 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-6 shadow-lg",
+          "app-appearance-scope bg-background fixed top-1/2 left-1/2 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-6 shadow-lg",
           className,
         )}
         {...props}

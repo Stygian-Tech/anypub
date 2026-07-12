@@ -1,6 +1,7 @@
 export type MarkdownBlockKind =
   | "empty"
   | "heading"
+  | "thematic-break"
   | "quote"
   | "unordered-list"
   | "ordered-list"
@@ -19,6 +20,7 @@ type BaseMarkdownBlock = {
 export type MarkdownBlock =
   | (BaseMarkdownBlock & { kind: "empty" })
   | (BaseMarkdownBlock & { kind: "heading"; headingLevel: number })
+  | (BaseMarkdownBlock & { kind: "thematic-break" })
   | (BaseMarkdownBlock & { kind: "quote" })
   | (BaseMarkdownBlock & { kind: "unordered-list"; listLevel: number })
   | (BaseMarkdownBlock & { kind: "ordered-list"; listLevel: number; listStart: number })
@@ -58,6 +60,10 @@ export function parseMarkdownBlock(source: string): MarkdownBlock {
   }
 
   const lines = rawSource.split("\n").filter((line) => line.trim());
+  if (/^\s{0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/.test(rawSource)) {
+    return { kind: "thematic-break", source: trimmed };
+  }
+
   const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
   if (heading && lines.length === 1) {
     return { kind: "heading", source: trimmed, headingLevel: heading[1]?.length ?? 1 };
@@ -101,6 +107,22 @@ export function setMarkdownBlockListLevel(block: MarkdownBlock, listLevel: numbe
   const boundedLevel = Math.max(0, Math.min(4, listLevel));
   const sourceWithoutIndent = block.source.replace(/^[ \t]*/, "");
   return parseMarkdownBlock(`${listLevelToIndent(boundedLevel)}${sourceWithoutIndent}`);
+}
+
+export function isEmptyListMarkdownBlock(
+  block: MarkdownBlock,
+): block is Extract<MarkdownBlock, { kind: "unordered-list" | "ordered-list" }> {
+  return isListMarkdownBlock(block) && !block.source.replace(/^[ \t]*(?:[-*+]|\d+\.)\s*/, "").trim();
+}
+
+export function outdentEmptyListMarkdownBlock(block: MarkdownBlock) {
+  if (!isEmptyListMarkdownBlock(block)) {
+    return block;
+  }
+
+  return block.listLevel > 0
+    ? setMarkdownBlockListLevel(block, block.listLevel - 1)
+    : parseMarkdownBlock("");
 }
 
 export function splitMarkdownBlockAtCursor(
@@ -192,7 +214,7 @@ function shouldJoinWithSingleNewline(previousBlock: string, block: string) {
   const previousKind = summarizeMarkdownBlock(previousBlock).kind;
   const nextKind = summarizeMarkdownBlock(block).kind;
 
-  return isListKind(previousKind) && isListKind(nextKind);
+  return previousKind === nextKind && isListKind(previousKind);
 }
 
 function getBlockSource(block: MarkdownBlockInput) {
