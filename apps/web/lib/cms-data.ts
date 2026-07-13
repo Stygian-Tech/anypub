@@ -80,7 +80,7 @@ export const seedDrafts: Draft[] = [
     excerpt: "A compact update on the CMS workflow for standard.site publications.",
     tags: ["release", "cms"],
     markdown:
-      "# Shipping the first AnyPub CMS pass\n\n## Editorial surface\n\n### Block coverage\n\n#### Nested list contract\n\nThe first version focuses on OAuth-linked accounts, existing publications, local drafts, and standard.site document publishing.\n\n- Multiple linked accounts\n\t- Account-scoped publication cache\n\t\t- Publication host derived from theme lexicons\n\t\t\t- Leaflet, Offprint, and pckt compatibility paths\n- Publication-scoped drafting\n\t- Markdown blocks stay individually addressable\n- Calendar-aware scheduling\n\n- [ ] Upload a cover image\n- [x] Preserve alt text and captions in draft metadata\n\t- [ ] Map checklist state into target host blocks\n\n1. Draft locally\n\t1. Choose a publication\n\t\t1. Resolve host adapter\n2. Schedule or publish\n\t1. Create calendar event linkage\n\t\t1. Store update pointer for retries\n\n<div data-callout=\"editor-note\">HTML div blocks should remain intact until the host adapter translates them.</div>\n\n> Scheduled and published articles should show up in the unified calendar.\n> Calendar events keep the article URL and AT URI together.",
+      "# Shipping the first AnyPub CMS pass\n\n## Editorial surface\n\n### Block coverage\n\n#### Nested list contract\n\nThe first version focuses on OAuth-linked accounts, existing publications, local drafts, and standard.site document publishing.\n\n- Multiple linked accounts\n\t- Account-scoped publication cache\n\t\t- Publication host derived from theme lexicons\n\t\t\t- Leaflet, Offprint, and pckt compatibility paths\n- Publication-scoped drafting\n\t- Markdown blocks stay individually addressable\n- Calendar-aware scheduling\n\n- [ ] Upload a cover image\n- [x] Preserve alt text and captions in draft metadata\n\t- [ ] Map checklist state into target host blocks\n\n1. Draft locally\n\t1. Choose a publication\n\t\t1. Resolve host adapter\n2. Schedule or publish\n\t1. Create calendar event linkage\n\t\t1. Store update pointer for retries\n\n---\n\n<div data-callout=\"editor-note\">HTML div blocks should remain intact until the host adapter translates them.</div>\n\n> Scheduled and published articles should show up in the unified calendar.\n> Calendar events keep the article URL and AT URI together.",
     plaintext:
       "Shipping the first AnyPub CMS pass\nEditorial surface\nBlock coverage\nNested list contract\nThe first version focuses on OAuth-linked accounts, existing publications, local drafts, and standard.site document publishing.\nMultiple linked accounts\nAccount-scoped publication cache\nPublication host derived from theme lexicons\nLeaflet, Offprint, and pckt compatibility paths\nPublication-scoped drafting\nMarkdown blocks stay individually addressable\nCalendar-aware scheduling\nUpload a cover image\nPreserve alt text and captions in draft metadata\nMap checklist state into target host blocks\nDraft locally\nChoose a publication\nResolve host adapter\nSchedule or publish\nCreate calendar event linkage\nStore update pointer for retries\nHTML div blocks should remain intact until the host adapter translates them.\nScheduled and published articles should show up in the unified calendar.\nCalendar events keep the article URL and AT URI together.",
     status: "scheduled",
@@ -107,9 +107,9 @@ export const seedDrafts: Draft[] = [
   },
   {
     id: "draft-3",
-    accountDID: "did:plc:editor",
-    publicationURI: "at://did:plc:editor/site.standard.publication/3lqrs",
-    publicationURL: "https://desk.example.com",
+    accountDID: "did:plc:writer",
+    publicationURI: "at://did:plc:writer/site.standard.publication/3labc",
+    publicationURL: "https://field.example.com",
     title: "Published calendar event smoke test",
     path: "/published-calendar-smoke-test",
     excerpt: "A published document that already has a calendar event link.",
@@ -118,12 +118,22 @@ export const seedDrafts: Draft[] = [
     plaintext: "Published content used to verify the unified calendar.",
     status: "published",
     publishedAt: "2026-07-06T13:00:00.000Z",
-    documentURI: "at://did:plc:editor/site.standard.document/3l999",
+    documentURI: "at://did:plc:writer/site.standard.document/3l999",
     documentCID: "bafyrecord",
     createdAt: "2026-07-03T17:00:00.000Z",
     updatedAt: "2026-07-06T13:05:00.000Z",
   },
 ];
+
+export function draftActivityDate(draft: Draft) {
+  return draft.publishedAt ?? draft.scheduledAt ?? draft.updatedAt;
+}
+
+export function sortDraftsReverseChronological(drafts: Draft[]) {
+  return [...drafts].sort(
+    (left, right) => Date.parse(draftActivityDate(right)) - Date.parse(draftActivityDate(left)),
+  );
+}
 
 export function calendarItemsFromDrafts(drafts: Draft[]): CalendarItem[] {
   return drafts

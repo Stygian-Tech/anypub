@@ -1,6 +1,7 @@
 @testable import App
 import Foundation
 import Testing
+import VaporTesting
 
 @Suite("AnyPub backend logic")
 struct AppLogicTests {
@@ -38,6 +39,16 @@ struct AppLogicTests {
         #expect(PublicationHostDetector.detect(themeType: "app.pckt.theme.publication", themeName: nil, publicationURL: nil) == .pckt)
         #expect(PublicationHostDetector.detect(themeType: nil, themeName: "Leaflet editorial", publicationURL: nil) == .leaflet)
         #expect(PublicationHostDetector.detect(themeType: "app.pckt.theme.publication", themeName: nil, publicationURL: "https://offprint.example") == .pckt)
+    }
+
+    @Test("AT record references parse repo, collection, and rkey")
+    func atRecordReference() throws {
+        let reference = try ATRecordReference(
+            uri: "at://did:plc:example/site.standard.document/3lrecord"
+        )
+        #expect(reference.repo == "did:plc:example")
+        #expect(reference.collection == "site.standard.document")
+        #expect(reference.rkey == "3lrecord")
     }
 
     @Test("Markdown content translator emits styled blocks")
@@ -138,5 +149,91 @@ struct AppLogicTests {
         #expect(record.mode == "community.lexicon.calendar.event#virtual")
         #expect(record.uris.map(\.uri).contains("https://example.com/calendar-post"))
         #expect(record.uris.map(\.uri).contains("at://did:plc:example/site.standard.document/def"))
+    }
+
+    @Test("Draft API seeds, creates, and persists edits")
+    func draftPersistence() async throws {
+        try await withApp(configure: configure) { app in
+            try await app.testing().test(.GET, "/api/drafts?accountDID=did%3Aplc%3Awriter") { response in
+                #expect(response.status == .ok)
+                expectContent([DraftResponse].self, response) { drafts in
+                    #expect(drafts.count == 9)
+                }
+            }
+
+            let create = UpsertDraftRequest(
+                accountDID: "did:plc:writer",
+                publicationURI: "at://did:plc:writer/site.standard.publication/3lxyz",
+                publicationURL: "https://standard.example.com",
+                title: "Persistent draft",
+                path: "/persistent-draft",
+                excerpt: "Created through the API",
+                tags: ["persistence"],
+                markdown: "# Original",
+                coverAssetID: nil
+            )
+            try await app.testing().test(.POST, "/api/drafts") { request in
+                try request.content.encode(create)
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+            }
+
+            let draft = try #require(
+                await Draft.query(on: app.db).filter(\.$title, .equal, "Persistent draft").first()
+            )
+            let draftID = try #require(draft.id)
+            let update = UpsertDraftRequest(
+                accountDID: create.accountDID,
+                publicationURI: create.publicationURI,
+                publicationURL: create.publicationURL,
+                title: "Persistent draft edited",
+                path: create.path,
+                excerpt: create.excerpt,
+                tags: create.tags,
+                markdown: "# Edited\n\nSaved body",
+                blockDocumentJSON: "{\"schemaVersion\":1,\"revision\":3,\"blocks\":[],\"markdown\":\"# Edited\\n\\nSaved body\"}",
+                blockSchemaVersion: 1,
+                blockRevision: 3,
+                coverAssetID: nil
+            )
+            try await app.testing().test(.PUT, "/api/drafts/\(draftID)") { request in
+                try request.content.encode(update)
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+            }
+
+            let persisted = try #require(await Draft.find(draftID, on: app.db))
+            #expect(persisted.title == "Persistent draft edited")
+            #expect(persisted.markdown == "# Edited\n\nSaved body")
+            #expect(persisted.plaintext == "Edited\nSaved body")
+            #expect(persisted.blockSchemaVersion == 1)
+            #expect(persisted.blockRevision == 3)
+            #expect(persisted.blockDocumentJSON == update.blockDocumentJSON)
+
+            let publication = ChangeDraftPublicationRequest(
+                publicationURI: "at://did:plc:writer/site.standard.publication/3labc",
+                publicationURL: "https://field.example.com"
+            )
+            try await app.testing().test(.PATCH, "/api/drafts/\(draftID)/publication") { request in
+                try request.content.encode(publication)
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+            }
+
+            let scheduledAt = Date().addingTimeInterval(3_600)
+            try await app.testing().test(.POST, "/api/drafts/\(draftID)/schedule") { request in
+                try request.content.encode(ScheduleDraftRequest(scheduledAt: scheduledAt))
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+            }
+            try await app.testing().test(.POST, "/api/drafts/\(draftID)/revert") { response in
+                #expect(response.status == .ok)
+            }
+
+            let reverted = try #require(await Draft.find(draftID, on: app.db))
+            #expect(reverted.publicationURI == publication.publicationURI)
+            #expect(reverted.typedStatus == .draft)
+            #expect(reverted.scheduledAt == nil)
+        }
     }
 }

@@ -7,8 +7,10 @@ struct DraftController: RouteCollection {
         drafts.post(use: create)
         drafts.get(":id", use: get)
         drafts.put(":id", use: update)
+        drafts.patch(":id", "publication", use: changePublication)
         drafts.post(":id", "schedule", use: schedule)
         drafts.post(":id", "publish", use: publish)
+        drafts.post(":id", "revert", use: revertToDraft)
         drafts.delete(":id", use: delete)
     }
 
@@ -34,6 +36,9 @@ struct DraftController: RouteCollection {
             excerpt: input.excerpt,
             tags: input.tags,
             markdown: input.markdown,
+            blockDocumentJSON: input.blockDocumentJSON,
+            blockSchemaVersion: input.blockSchemaVersion ?? 1,
+            blockRevision: input.blockRevision ?? 0,
             coverAssetID: input.coverAssetID
         )
         try await draft.save(on: req.db)
@@ -56,6 +61,9 @@ struct DraftController: RouteCollection {
         draft.tagsJSON = try TagsCodec.encode(input.tags)
         draft.markdown = input.markdown
         draft.plaintext = MarkdownPlaintext.render(input.markdown)
+        draft.blockDocumentJSON = input.blockDocumentJSON
+        draft.blockSchemaVersion = input.blockSchemaVersion ?? draft.blockSchemaVersion ?? 1
+        draft.blockRevision = input.blockRevision ?? draft.blockRevision ?? 0
         draft.coverAssetID = input.coverAssetID
         draft.updatedAt = Date()
         try await draft.save(on: req.db)
@@ -81,8 +89,40 @@ struct DraftController: RouteCollection {
         try await PublisherService().publish(draft: try await findDraft(req: req), req: req)
     }
 
+    func changePublication(req: Request) async throws -> DraftResponse {
+        let draft = try await findDraft(req: req)
+        guard draft.typedStatus == .draft || draft.typedStatus == .failed else {
+            throw Abort(.conflict, reason: "Only drafts can change publication")
+        }
+        let input = try req.content.decode(ChangeDraftPublicationRequest.self)
+        draft.publicationURI = input.publicationURI
+        draft.publicationURL = input.publicationURL
+        draft.updatedAt = Date()
+        try await draft.save(on: req.db)
+        return DraftResponse(draft: draft)
+    }
+
+    func revertToDraft(req: Request) async throws -> DraftResponse {
+        let draft = try await findDraft(req: req)
+        if draft.typedStatus == .published {
+            try await PublisherService().deletePublishedDocument(for: draft, req: req)
+            draft.publishedAt = nil
+            draft.documentURI = nil
+            draft.documentCID = nil
+        }
+        draft.scheduledAt = nil
+        draft.typedStatus = .draft
+        draft.updatedAt = Date()
+        try await draft.save(on: req.db)
+        return DraftResponse(draft: draft)
+    }
+
     func delete(req: Request) async throws -> HTTPStatus {
-        try await findDraft(req: req).delete(on: req.db)
+        let draft = try await findDraft(req: req)
+        if draft.typedStatus == .published {
+            try await PublisherService().deletePublishedDocument(for: draft, req: req)
+        }
+        try await draft.delete(on: req.db)
         return .noContent
     }
 
@@ -103,11 +143,47 @@ struct UpsertDraftRequest: Content {
     let excerpt: String?
     let tags: [String]
     let markdown: String
+    let blockDocumentJSON: String?
+    let blockSchemaVersion: Int?
+    let blockRevision: Int?
     let coverAssetID: UUID?
+
+    init(
+        accountDID: String,
+        publicationURI: String,
+        publicationURL: String,
+        title: String,
+        path: String?,
+        excerpt: String?,
+        tags: [String],
+        markdown: String,
+        blockDocumentJSON: String? = nil,
+        blockSchemaVersion: Int? = nil,
+        blockRevision: Int? = nil,
+        coverAssetID: UUID?
+    ) {
+        self.accountDID = accountDID
+        self.publicationURI = publicationURI
+        self.publicationURL = publicationURL
+        self.title = title
+        self.path = path
+        self.excerpt = excerpt
+        self.tags = tags
+        self.markdown = markdown
+        self.blockDocumentJSON = blockDocumentJSON
+        self.blockSchemaVersion = blockSchemaVersion
+        self.blockRevision = blockRevision
+        self.coverAssetID = coverAssetID
+    }
 }
 
 struct ScheduleDraftRequest: Content {
     let scheduledAt: Date
+}
+
+struct ChangeDraftPublicationRequest: Content {
+    let publicationURI: String
+    let publicationURL: String
 }
 
 struct DraftResponse: Content {
@@ -121,6 +197,9 @@ struct DraftResponse: Content {
     let tags: [String]
     let markdown: String
     let plaintext: String
+    let blockDocumentJSON: String?
+    let blockSchemaVersion: Int
+    let blockRevision: Int
     let coverAssetID: UUID?
     let status: String
     let scheduledAt: Date?
@@ -141,6 +220,9 @@ struct DraftResponse: Content {
         tags = draft.tags()
         markdown = draft.markdown
         plaintext = draft.plaintext
+        blockDocumentJSON = draft.blockDocumentJSON
+        blockSchemaVersion = draft.blockSchemaVersion ?? 1
+        blockRevision = draft.blockRevision ?? 0
         coverAssetID = draft.coverAssetID
         status = draft.status
         scheduledAt = draft.scheduledAt

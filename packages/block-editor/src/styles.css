@@ -1,0 +1,8 @@
+.typeset-block-editor {
+  --typeset-font-body: inherit;
+  --typeset-font-heading: inherit;
+  --typeset-font-mono: var(--font-mono, ui-monospace, monospace);
+  --typeset-size: 1rem;
+  --typeset-leading: 1.625;
+  --typeset-flow: 1em;
+}

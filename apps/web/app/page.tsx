@@ -1,5 +1,5 @@
-import { CmsShell } from "@/components/cms/cms-shell";
+import { CmsWorkspace } from "@/components/cms/cms-workspace";
 
 export default function Home() {
-  return <CmsShell />;
+  return <CmsWorkspace />;
 }
