@@ -134,6 +134,12 @@ html[data-small-text="true"] {
   font-weight: var(--app-font-weight);
 }
 
+[data-slot="context-menu-content"],
+[data-slot="context-menu-sub-content"] {
+  font-family: var(--app-font-family);
+  font-weight: var(--app-font-weight);
+}
+
 html[data-bold-text="true"] .app-appearance-scope :where(button, [role="button"]) {
   font-weight: 600;
 }
@@ -154,4 +160,19 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+button,
+[role="button"] {
+  cursor: pointer;
+}
+
+textarea,
+input:not([type]),
+input[type="text"],
+input[type="search"],
+input[type="email"],
+input[type="url"],
+input[type="password"] {
+  cursor: text;
 }

@@ -92,6 +92,27 @@ struct PublisherService: Sendable {
         return response
     }
 
+    func deletePublishedDocument(for draft: Draft, req: Request) async throws {
+        guard let documentURI = draft.documentURI else { return }
+        let reference = try ATRecordReference(uri: documentURI)
+        guard reference.collection == "site.standard.document" else {
+            throw Abort(.badRequest, reason: "Published linkage is not a standard.site document")
+        }
+        guard let account = try await LinkedAccount.query(on: req.db)
+            .filter(\.$did, .equal, draft.accountDID)
+            .first()
+        else {
+            throw Abort(.notFound, reason: "Linked account not found")
+        }
+
+        try await xrpc.deleteRecord(
+            account: account,
+            tokenEncryption: req.application.tokenEncryption,
+            recordURI: documentURI,
+            client: req.client
+        )
+    }
+
     private func coverBlob(for draft: Draft, account: LinkedAccount, req: Request) async throws -> ATProtoBlobRef? {
         guard let coverAssetID = draft.coverAssetID,
               let asset = try await CoverAsset.find(coverAssetID, on: req.db)

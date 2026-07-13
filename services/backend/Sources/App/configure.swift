@@ -35,6 +35,10 @@ public func configure(_ app: Application) async throws {
     }
 
     app.migrations.add(CreateAnyPubTables())
+    app.migrations.add(AddDraftBlockDocuments())
+    if app.environment == .development || app.environment == .testing {
+        app.migrations.add(SeedDevelopmentDrafts())
+    }
     try await app.autoMigrate()
 
     app.lifecycle.use(ScheduledPublisherLifecycle())

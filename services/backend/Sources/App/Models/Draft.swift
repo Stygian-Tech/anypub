@@ -42,6 +42,15 @@ final class Draft: Model, Content, @unchecked Sendable {
     @Field(key: "plaintext")
     var plaintext: String
 
+    @OptionalField(key: "block_document_json")
+    var blockDocumentJSON: String?
+
+    @OptionalField(key: "block_schema_version")
+    var blockSchemaVersion: Int?
+
+    @OptionalField(key: "block_revision")
+    var blockRevision: Int?
+
     @OptionalField(key: "cover_asset_id")
     var coverAssetID: UUID?
 
@@ -78,6 +87,9 @@ final class Draft: Model, Content, @unchecked Sendable {
         excerpt: String?,
         tags: [String],
         markdown: String,
+        blockDocumentJSON: String? = nil,
+        blockSchemaVersion: Int = 1,
+        blockRevision: Int = 0,
         coverAssetID: UUID? = nil,
         status: DraftStatus = .draft,
         scheduledAt: Date? = nil,
@@ -95,6 +107,9 @@ final class Draft: Model, Content, @unchecked Sendable {
         self.tagsJSON = try TagsCodec.encode(tags)
         self.markdown = markdown
         self.plaintext = MarkdownPlaintext.render(markdown)
+        self.blockDocumentJSON = blockDocumentJSON
+        self.blockSchemaVersion = blockSchemaVersion
+        self.blockRevision = blockRevision
         self.coverAssetID = coverAssetID
         self.status = status.rawValue
         self.scheduledAt = scheduledAt

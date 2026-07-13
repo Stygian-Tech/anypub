@@ -107,9 +107,9 @@ export const seedDrafts: Draft[] = [
   },
   {
     id: "draft-3",
-    accountDID: "did:plc:editor",
-    publicationURI: "at://did:plc:editor/site.standard.publication/3lqrs",
-    publicationURL: "https://desk.example.com",
+    accountDID: "did:plc:writer",
+    publicationURI: "at://did:plc:writer/site.standard.publication/3labc",
+    publicationURL: "https://field.example.com",
     title: "Published calendar event smoke test",
     path: "/published-calendar-smoke-test",
     excerpt: "A published document that already has a calendar event link.",
@@ -118,12 +118,22 @@ export const seedDrafts: Draft[] = [
     plaintext: "Published content used to verify the unified calendar.",
     status: "published",
     publishedAt: "2026-07-06T13:00:00.000Z",
-    documentURI: "at://did:plc:editor/site.standard.document/3l999",
+    documentURI: "at://did:plc:writer/site.standard.document/3l999",
     documentCID: "bafyrecord",
     createdAt: "2026-07-03T17:00:00.000Z",
     updatedAt: "2026-07-06T13:05:00.000Z",
   },
 ];
+
+export function draftActivityDate(draft: Draft) {
+  return draft.publishedAt ?? draft.scheduledAt ?? draft.updatedAt;
+}
+
+export function sortDraftsReverseChronological(drafts: Draft[]) {
+  return [...drafts].sort(
+    (left, right) => Date.parse(draftActivityDate(right)) - Date.parse(draftActivityDate(left)),
+  );
+}
 
 export function calendarItemsFromDrafts(drafts: Draft[]): CalendarItem[] {
   return drafts

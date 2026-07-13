@@ -84,6 +84,12 @@ struct PutRecordInput<Record: Codable & Sendable>: Content, Sendable {
     let record: Record
 }
 
+struct DeleteRecordInput: Content, Sendable {
+    let repo: String
+    let collection: String
+    let rkey: String
+}
+
 struct ATProtoXRPCClient: Sendable {
     func listPublications(account: LinkedAccount, tokenEncryption: TokenEncryption, client: Client) async throws -> [RepositoryRecord<PublicationRecordValue>] {
         var all: [RepositoryRecord<PublicationRecordValue>] = []
@@ -173,6 +179,28 @@ struct ATProtoXRPCClient: Sendable {
         return try response.content.decode(UploadBlobResponse.self).blob
     }
 
+    func deleteRecord(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        recordURI: String,
+        client: Client
+    ) async throws {
+        let reference = try ATRecordReference(uri: recordURI)
+        guard reference.repo == account.did else {
+            throw Abort(.badRequest, reason: "Record does not belong to the linked account")
+        }
+
+        let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.deleteRecord")
+        let input = DeleteRecordInput(repo: reference.repo, collection: reference.collection, rkey: reference.rkey)
+        let response = try await client.post(URI(string: uri)) { req in
+            try authorize(req: &req, account: account, tokenEncryption: tokenEncryption)
+            try req.content.encode(input)
+        }.get()
+        guard (200..<300).contains(response.status.code) else {
+            throw Abort(.badGateway, reason: "PDS rejected record deletion")
+        }
+    }
+
     private func createRecord<Record: Codable & Sendable>(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
@@ -203,5 +231,24 @@ struct ATProtoXRPCClient: Sendable {
             throw Abort(.badRequest, reason: "Invalid PDS URL")
         }
         return url
+    }
+}
+
+struct ATRecordReference: Equatable, Sendable {
+    let repo: String
+    let collection: String
+    let rkey: String
+
+    init(uri: String) throws {
+        guard uri.hasPrefix("at://") else {
+            throw Abort(.badRequest, reason: "Invalid AT URI")
+        }
+        let parts = uri.dropFirst(5).split(separator: "/", omittingEmptySubsequences: true)
+        guard parts.count == 3 else {
+            throw Abort(.badRequest, reason: "Invalid record AT URI")
+        }
+        repo = String(parts[0])
+        collection = String(parts[1])
+        rkey = String(parts[2])
     }
 }

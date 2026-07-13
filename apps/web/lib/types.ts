@@ -37,6 +37,9 @@ export type Draft = {
   tags: string[];
   markdown: string;
   plaintext: string;
+  blockDocumentJSON?: string;
+  blockSchemaVersion?: number;
+  blockRevision?: number;
   coverAssetID?: string;
   status: DraftStatus;
   scheduledAt?: string;
