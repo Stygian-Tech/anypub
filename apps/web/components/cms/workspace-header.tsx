@@ -1,6 +1,6 @@
 "use client";
 
-import { MoonIcon, RefreshCwIcon, RocketIcon, SunIcon } from "lucide-react";
+import { LogOutIcon, MoonIcon, RefreshCwIcon, RocketIcon, SunIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NewDraftDialog } from "@/components/cms/post-dialogs";
@@ -13,21 +13,25 @@ export function WorkspaceHeader({
   publications,
   isSyncing,
   isPublishing,
+  isLoggingOut,
   canPublish,
   onThemeChange,
   onSync,
   onCreateDraft,
   onPublish,
+  onLogOut,
 }: {
   theme: ThemePreference;
   publications: Publication[];
   isSyncing: boolean;
   isPublishing: boolean;
+  isLoggingOut: boolean;
   canPublish: boolean;
   onThemeChange: (theme: ThemePreference) => void;
   onSync: () => void;
   onCreateDraft: (publicationURI: string) => Promise<boolean>;
   onPublish: () => void;
+  onLogOut: () => void;
 }) {
   return (
     <header className="grid min-h-16 shrink-0 grid-cols-1 items-center gap-3 border-b px-4 py-2 lg:grid-cols-[minmax(180px,1fr)_minmax(320px,1fr)] lg:py-0">
@@ -50,6 +54,10 @@ export function WorkspaceHeader({
         <Button size="sm" onClick={onPublish} disabled={!canPublish || isPublishing}>
           <RocketIcon data-icon="inline-start" className={cn(isPublishing && "animate-pulse")} />
           {isPublishing ? "Publishing…" : "Publish"}
+        </Button>
+        <Button variant="outline" size="sm" onClick={onLogOut} disabled={isLoggingOut}>
+          <LogOutIcon data-icon="inline-start" />
+          {isLoggingOut ? "Logging out…" : "Log out"}
         </Button>
       </div>
     </header>

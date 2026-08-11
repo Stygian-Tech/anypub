@@ -27,7 +27,7 @@ import {
   calendarItemsFromDrafts,
   sortDraftsReverseChronological,
 } from "@/lib/cms-data";
-import { loadAccounts } from "@/lib/oauth-api";
+import { loadAccounts, unlinkAccount } from "@/lib/oauth-api";
 import type { Draft, LinkedAccount, Publication } from "@/lib/types";
 import { markdownToPlaintext, validateDraft } from "@/lib/validation";
 
@@ -42,6 +42,7 @@ export function CmsWorkspace() {
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isPublishing, setIsPublishing] = React.useState(false);
+  const [isLoggingOut, setIsLoggingOut] = React.useState(false);
   const [publicationDraft, setPublicationDraft] = React.useState<Draft | null>(null);
   const [scheduleDraftToEdit, setScheduleDraftToEdit] = React.useState<Draft | null>(null);
   const [scheduleDateTime, setScheduleDateTime] = React.useState("");
@@ -378,6 +379,24 @@ export function CmsWorkspace() {
     }
   }
 
+  async function logOut() {
+    if (!activeAccount || isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    try {
+      await unlinkAccount(activeAccount.did);
+      setAccounts((current) => current.filter((account) => account.did !== activeAccount.did));
+      setPublications([]);
+      setDrafts([]);
+      setSelectedDraftID("");
+      toast.success("Logged out");
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not log out"));
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
   const shellStyle = {
     "--workbench-columns": `${columnLayout.draftList}px 9px minmax(0,1fr) 9px ${columnLayout.metadataPanel}px`,
   } as React.CSSProperties & {
@@ -411,10 +430,12 @@ export function CmsWorkspace() {
             isSyncing={isSyncing}
             canPublish={Boolean(activeDraft && validation.valid && !isPublishing)}
             isPublishing={isPublishing}
+            isLoggingOut={isLoggingOut}
             onThemeChange={changeThemePreference}
             onSync={syncPublications}
             onCreateDraft={createDraft}
             onPublish={publishDraft}
+            onLogOut={logOut}
           />
 
           <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[var(--workbench-columns)]">

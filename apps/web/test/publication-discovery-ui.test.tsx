@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CmsWorkspace } from "@/components/cms/cms-workspace";
 import { RightPanel } from "@/components/cms/right-panel";
 import type { Draft } from "@/lib/types";
@@ -62,6 +62,40 @@ describe("publication discovery UI", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+  });
+
+  it("logs out the active account and returns to the OAuth connect screen", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      const body = url.endsWith("/api/accounts")
+        ? [{
+            id: "account-id",
+            did: "did:plc:writer",
+            handle: "writer.example",
+            pdsURL: "https://pds.example",
+            scope: "atproto",
+            linkedAt: "2026-08-11T00:00:00.000Z",
+            updatedAt: "2026-08-11T00:00:00.000Z",
+          }]
+        : [];
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CmsWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
+
+    expect(await screen.findByText("Connect your publication account")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8080/api/accounts/did%3Aplc%3Awriter",
+      expect.objectContaining({ method: "DELETE", credentials: "include" }),
+    );
   });
 
   it("renders an unavailable publication without substituting another one", () => {
