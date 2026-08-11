@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
+import type { CSSProperties } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
+import { EnvironmentBanner } from "@/components/environment-banner";
 import { Toaster } from "@/components/ui/sonner";
+import { environmentBannerHeight, getAppEnv } from "@/lib/app-env";
+import { getWebPublicURL } from "@/lib/public-url";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,10 +19,36 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "AnyPub",
+const baseMetadata: Metadata = {
+  title: {
+    default: "AnyPub",
+    template: "%s | AnyPub",
+  },
   description: "A standard.site CMS for ATProto publications.",
+  applicationName: "AnyPub",
+  openGraph: {
+    title: "AnyPub",
+    description: "A standard.site CMS for ATProto publications.",
+    siteName: "AnyPub",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AnyPub",
+    description: "A standard.site CMS for ATProto publications.",
+  },
 };
+
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    metadataBase: getWebPublicURL(process.env, await headers()),
+    ...baseMetadata,
+  };
+}
+
+// Resolve APP_ENV from the running Railway environment instead of baking a
+// development label into an image that could later be promoted.
+export const dynamic = "force-dynamic";
 
 const themeScript = `
 (() => {
@@ -49,12 +80,18 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const appEnv = getAppEnv();
+
   return (
     <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable}`}>
       <head>
         <Script id="anypub-theme" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>
+      <body
+        className="flex min-h-dvh flex-col"
+        style={{ "--environment-banner-height": environmentBannerHeight(appEnv) } as CSSProperties}
+      >
+        <EnvironmentBanner appEnv={appEnv} />
         {children}
         <Toaster />
       </body>

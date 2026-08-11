@@ -7,8 +7,15 @@ enum PublicationHost: String, Codable, Equatable, Sendable {
 }
 
 struct PublicationHostDetector: Sendable {
-    static func detect(themeType: String?, themeName: String?, publicationURL: String?) -> PublicationHost? {
-        if let host = detect(in: [themeType, themeName]) {
+    static func detect(themeType: String?, themeURI: String? = nil, themeName: String?, publicationURL: String?) -> PublicationHost? {
+        switch themeType {
+        case "pub.leaflet.publication#theme": return .leaflet
+        case "app.offprint.theme": return .offprint
+        case "blog.pckt.theme": return .pckt
+        default: break
+        }
+
+        if let host = detect(in: [themeType, themeURI, themeName]) {
             return host
         }
 
@@ -21,10 +28,10 @@ struct PublicationHostDetector: Sendable {
         if values.contains(where: { $0.contains("pub.leaflet") || $0.contains("leaflet") }) {
             return .leaflet
         }
-        if values.contains(where: { $0.contains("pub.offprint") || $0.contains("offprint") }) {
+        if values.contains(where: { $0.contains("app.offprint") || $0.contains("offprint") }) {
             return .offprint
         }
-        if values.contains(where: { $0.contains("app.pckt") || $0.contains("pub.pckt") || $0.contains("pckt") || $0.contains("pocket") }) {
+        if values.contains(where: { $0.contains("blog.pckt") || $0.contains("app.pckt") || $0.contains("pckt") || $0.contains("pocket") }) {
             return .pckt
         }
 

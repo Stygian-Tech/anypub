@@ -4,7 +4,9 @@ import * as React from "react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import * as draftAPI from "@/lib/draft-api";
+import { APIError } from "@/lib/api";
 import { EditorPanel } from "@/components/cms/editor-panel";
+import { OAuthConnectScreen } from "@/components/oauth-connect-screen";
 import {
   DraftList,
   type DraftListGrouping,
@@ -23,36 +25,23 @@ import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   calendarItemsFromDrafts,
-  seedAccounts,
-  seedDrafts,
-  seedPublications,
   sortDraftsReverseChronological,
 } from "@/lib/cms-data";
-import type { Draft, Publication } from "@/lib/types";
+import { loadAccounts } from "@/lib/oauth-api";
+import type { Draft, LinkedAccount, Publication } from "@/lib/types";
 import { markdownToPlaintext, validateDraft } from "@/lib/validation";
 
-const activeSeedAccount = seedAccounts[0];
-const initialAccountDID = activeSeedAccount?.did ?? "";
-const initialPublicationURI =
-  seedPublications.find((publication) => publication.accountDID === initialAccountDID)?.uri ?? "";
-const initialDraftID =
-  seedDrafts.find((draft) => draft.publicationURI === initialPublicationURI)?.id ?? seedDrafts[0]?.id ?? "";
-const initialDraft = seedDrafts.find((draft) => draft.id === initialDraftID);
-const initialDraftListTab: DraftListTab =
-  initialDraft?.status === "scheduled"
-    ? "scheduled"
-    : initialDraft?.status === "published"
-      ? "published"
-      : "drafts";
-
 export function CmsWorkspace() {
-  const [publications] = React.useState(seedPublications);
-  const [drafts, setDrafts] = React.useState(seedDrafts);
-  const activeAccount = activeSeedAccount;
+  const [accounts, setAccounts] = React.useState<LinkedAccount[]>([]);
+  const [accountLoadState, setAccountLoadState] = React.useState<"loading" | "ready" | "error">("loading");
+  const [publications, setPublications] = React.useState<Publication[]>([]);
+  const [drafts, setDrafts] = React.useState<Draft[]>([]);
+  const activeAccount = accounts[0];
   const activeAccountDID = activeAccount?.did ?? "";
-  const [selectedDraftID, setSelectedDraftID] = React.useState(initialDraftID);
+  const [selectedDraftID, setSelectedDraftID] = React.useState("");
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isPublishing, setIsPublishing] = React.useState(false);
   const [publicationDraft, setPublicationDraft] = React.useState<Draft | null>(null);
   const [scheduleDraftToEdit, setScheduleDraftToEdit] = React.useState<Draft | null>(null);
   const [scheduleDateTime, setScheduleDateTime] = React.useState("");
@@ -60,12 +49,9 @@ export function CmsWorkspace() {
   const [revertDraftToConfirm, setRevertDraftToConfirm] = React.useState<Draft | null>(null);
   const [isMutatingDraft, setIsMutatingDraft] = React.useState(false);
   const [search, setSearch] = React.useState("");
-  const [draftListTab, setDraftListTab] = React.useState<DraftListTab>(initialDraftListTab);
+  const [draftListTab, setDraftListTab] = React.useState<DraftListTab>("drafts");
   const [draftListGrouping, setDraftListGrouping] = React.useState<DraftListGrouping>("all");
-  const [scheduledDate, setScheduledDate] = React.useState<Date | undefined>(() => {
-    const draft = seedDrafts[0];
-    return draft?.scheduledAt ? parseISO(draft.scheduledAt) : undefined;
-  });
+  const [scheduledDate, setScheduledDate] = React.useState<Date | undefined>();
   const {
     themePreference,
     fontPreference,
@@ -78,7 +64,33 @@ export function CmsWorkspace() {
   } = useAppearancePreferences();
   const { columnLayout, bounds: columnLayoutBounds, resizeColumn, beginColumnResize } = useWorkspaceLayout();
 
+  const requestAccounts = React.useCallback((signal: AbortSignal) => {
+    loadAccounts(signal)
+      .then((linkedAccounts) => {
+        setAccounts(linkedAccounts);
+        setAccountLoadState("ready");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setAccountLoadState("error");
+      });
+  }, []);
+
+  const refreshAccounts = React.useCallback(() => {
+    const controller = new AbortController();
+    setAccountLoadState("loading");
+    requestAccounts(controller.signal);
+    return () => controller.abort();
+  }, [requestAccounts]);
+
   React.useEffect(() => {
+    const controller = new AbortController();
+    requestAccounts(controller.signal);
+    return () => controller.abort();
+  }, [requestAccounts]);
+
+  React.useEffect(() => {
+    if (!activeAccountDID) return;
     const controller = new AbortController();
 
     draftAPI.loadDrafts(activeAccountDID, controller.signal)
@@ -95,6 +107,27 @@ export function CmsWorkspace() {
           return;
         }
         toast.error("Could not load saved drafts");
+      });
+
+    return () => controller.abort();
+  }, [activeAccountDID]);
+
+  React.useEffect(() => {
+    if (!activeAccountDID) return;
+    const controller = new AbortController();
+
+    draftAPI.loadPublications(activeAccountDID, controller.signal)
+      .then(async (persistedPublications) => {
+        if (persistedPublications.length > 0) {
+          setPublications(persistedPublications);
+          return;
+        }
+        const syncedPublications = await draftAPI.syncPublications(activeAccountDID);
+        if (!controller.signal.aborted) setPublications(syncedPublications);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        toast.error("Could not load saved publications");
       });
 
     return () => controller.abort();
@@ -288,39 +321,62 @@ export function CmsWorkspace() {
     }
   }
 
-  function scheduleDraft() {
-    if (!activeDraft || !scheduledDate) {
+  async function scheduleDraft() {
+    if (!activeDraft || !scheduledDate || isMutatingDraft) {
       return;
     }
-    updateDraft({
-      status: "scheduled",
-      scheduledAt: scheduledDate.toISOString(),
-    });
-    setDraftListTab("scheduled");
-    toast.success("Draft scheduled");
+    setIsMutatingDraft(true);
+    try {
+      await draftAPI.saveDraft(activeDraft);
+      const persisted = await draftAPI.scheduleDraft(activeDraft.id, scheduledDate);
+      replaceDraft(persisted);
+      setDraftListTab("scheduled");
+      setSelectedDraftID(persisted.id);
+      toast.success("Draft scheduled");
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not schedule draft"));
+    } finally {
+      setIsMutatingDraft(false);
+    }
   }
 
-  function publishDraft() {
-    if (!activeDraft || !validation.valid) {
+  async function publishDraft() {
+    if (!activeDraft || !validation.valid || isPublishing) {
       toast.error("Resolve validation before publishing");
       return;
     }
-    updateDraft({
-      status: "published",
-      publishedAt: new Date().toISOString(),
-      documentURI: `at://${activeDraft.accountDID}/site.standard.document/${activeDraft.id}`,
-      documentCID: "local-preview",
-    });
-    setDraftListTab("published");
-    toast.success("Publish request queued");
+    setIsPublishing(true);
+    try {
+      await draftAPI.saveDraft(activeDraft);
+      await draftAPI.publishDraft(activeDraft.id);
+      const persisted = await draftAPI.getDraft(activeDraft.id);
+      replaceDraft(persisted);
+      setDraftListTab("published");
+      setSelectedDraftID(persisted.id);
+      toast.success("Article published");
+    } catch (error) {
+      const persisted = await draftAPI.getDraft(activeDraft.id).catch(() => null);
+      if (persisted) {
+        replaceDraft(persisted);
+        if (persisted.status === "failed") setDraftListTab("drafts");
+      }
+      toast.error(errorMessage(error, "Could not publish article"));
+    } finally {
+      setIsPublishing(false);
+    }
   }
 
-  function syncPublications() {
+  async function syncPublications() {
     setIsSyncing(true);
-    window.setTimeout(() => {
-      setIsSyncing(false);
+    try {
+      const synced = await draftAPI.syncPublications(activeAccountDID);
+      setPublications(synced);
       toast.success("Publication cache refreshed");
-    }, 600);
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not sync publications"));
+    } finally {
+      setIsSyncing(false);
+    }
   }
 
   const shellStyle = {
@@ -329,15 +385,33 @@ export function CmsWorkspace() {
     "--workbench-columns": string;
   };
 
+  if (accountLoadState === "loading") {
+    return (
+      <main className="flex min-h-0 flex-1 items-center justify-center bg-muted/30 text-sm text-muted-foreground">
+        Loading account…
+      </main>
+    );
+  }
+
+  if (!activeAccount) {
+    return (
+      <OAuthConnectScreen
+        accountLoadFailed={accountLoadState === "error"}
+        onRetry={refreshAccounts}
+      />
+    );
+  }
+
   return (
     <TooltipProvider>
-      <div className="app-appearance-scope flex h-dvh min-h-0 bg-background text-foreground" style={shellStyle}>
+      <div className="app-appearance-scope flex h-[calc(100dvh-var(--environment-banner-height,0px))] min-h-0 bg-background text-foreground" style={shellStyle}>
         <main className="flex min-w-0 flex-1 flex-col">
           <WorkspaceHeader
             theme={themePreference}
             publications={accountPublications}
             isSyncing={isSyncing}
-            canPublish={Boolean(activeDraft && validation.valid)}
+            canPublish={Boolean(activeDraft && validation.valid && !isPublishing)}
+            isPublishing={isPublishing}
             onThemeChange={changeThemePreference}
             onSync={syncPublications}
             onCreateDraft={createDraft}
@@ -443,4 +517,8 @@ export function CmsWorkspace() {
       </div>
     </TooltipProvider>
   );
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof APIError ? error.message : fallback;
 }

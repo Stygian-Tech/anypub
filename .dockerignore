@@ -1,0 +1,17 @@
+.git
+.github
+.railway
+.env
+.env.*
+!.env.example
+**/.DS_Store
+**/.next
+**/.turbo
+**/.build
+**/.swiftpm
+**/node_modules
+**/*.tsbuildinfo
+coverage
+data
+uploads
+.ci-logs

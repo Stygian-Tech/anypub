@@ -27,6 +27,12 @@ struct DraftController: RouteCollection {
 
     func create(req: Request) async throws -> DraftResponse {
         let input = try req.content.decode(UpsertDraftRequest.self)
+        try CanonicalDocumentLoader.validateSnapshot(
+            input.blockDocumentJSON,
+            markdown: input.markdown,
+            expectedSchemaVersion: input.blockSchemaVersion,
+            expectedRevision: input.blockRevision
+        )
         let draft = try Draft(
             accountDID: input.accountDID,
             publicationURI: input.publicationURI,
@@ -52,6 +58,12 @@ struct DraftController: RouteCollection {
     func update(req: Request) async throws -> DraftResponse {
         let draft = try await findDraft(req: req)
         let input = try req.content.decode(UpsertDraftRequest.self)
+        try CanonicalDocumentLoader.validateSnapshot(
+            input.blockDocumentJSON,
+            markdown: input.markdown,
+            expectedSchemaVersion: input.blockSchemaVersion,
+            expectedRevision: input.blockRevision
+        )
         draft.accountDID = input.accountDID
         draft.publicationURI = input.publicationURI
         draft.publicationURL = input.publicationURL
@@ -104,11 +116,13 @@ struct DraftController: RouteCollection {
 
     func revertToDraft(req: Request) async throws -> DraftResponse {
         let draft = try await findDraft(req: req)
-        if draft.typedStatus == .published {
+        if draft.documentURI != nil {
             try await PublisherService().deletePublishedDocument(for: draft, req: req)
             draft.publishedAt = nil
             draft.documentURI = nil
             draft.documentCID = nil
+            draft.platformDocumentURI = nil
+            draft.platformDocumentCID = nil
         }
         draft.scheduledAt = nil
         draft.typedStatus = .draft
@@ -119,7 +133,7 @@ struct DraftController: RouteCollection {
 
     func delete(req: Request) async throws -> HTTPStatus {
         let draft = try await findDraft(req: req)
-        if draft.typedStatus == .published {
+        if draft.documentURI != nil {
             try await PublisherService().deletePublishedDocument(for: draft, req: req)
         }
         try await draft.delete(on: req.db)
@@ -206,6 +220,8 @@ struct DraftResponse: Content {
     let publishedAt: Date?
     let documentURI: String?
     let documentCID: String?
+    let platformDocumentURI: String?
+    let platformDocumentCID: String?
     let createdAt: Date
     let updatedAt: Date
 
@@ -229,6 +245,8 @@ struct DraftResponse: Content {
         publishedAt = draft.publishedAt
         documentURI = draft.documentURI
         documentCID = draft.documentCID
+        platformDocumentURI = draft.platformDocumentURI
+        platformDocumentCID = draft.platformDocumentCID
         createdAt = draft.createdAt
         updatedAt = draft.updatedAt
     }

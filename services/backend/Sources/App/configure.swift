@@ -4,20 +4,26 @@ import Vapor
 
 public func configure(_ app: Application) async throws {
     let config = AppConfig.load()
+    let tokenEncryption = TokenEncryption(secret: config.tokenEncryptionKey)
+    if app.environment == .production, !tokenEncryption.isEnabled {
+        throw Abort(.internalServerError, reason: "TOKEN_ENCRYPTION_KEY must be valid base64 containing at least 32 bytes in production")
+    }
     app.storage[AppConfigKey.self] = config
-    app.storage[TokenEncryptionKey.self] = TokenEncryption(secret: config.tokenEncryptionKey)
+    app.storage[TokenEncryptionKey.self] = tokenEncryption
 
     app.routes.defaultMaxBodySize = "8mb"
     app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
-    app.middleware.use(ErrorMiddleware.default(environment: app.environment))
 
     let cors = CORSMiddleware.Configuration(
-        allowedOrigin: .originBased,
+        allowedOrigin: .any(config.allowedOrigins),
         allowedMethods: [.GET, .POST, .PUT, .PATCH, .DELETE, .OPTIONS],
         allowedHeaders: [.accept, .authorization, .contentType, .origin, .xRequestedWith],
         allowCredentials: true
     )
     app.middleware.use(CORSMiddleware(configuration: cors))
+    // Keep the error middleware inside CORS so failed API responses remain
+    // readable by the browser client instead of being reduced to CORS errors.
+    app.middleware.use(ErrorMiddleware.default(environment: app.environment))
 
     try FileManager.default.createDirectory(
         atPath: config.dataDirectory,
@@ -36,6 +42,7 @@ public func configure(_ app: Application) async throws {
 
     app.migrations.add(CreateAnyPubTables())
     app.migrations.add(AddDraftBlockDocuments())
+    app.migrations.add(AddPublishingState())
     if app.environment == .development || app.environment == .testing {
         app.migrations.add(SeedDevelopmentDrafts())
     }

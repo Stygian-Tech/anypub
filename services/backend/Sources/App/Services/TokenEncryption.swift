@@ -1,4 +1,4 @@
-import Crypto
+@preconcurrency import Crypto
 import Foundation
 
 enum TokenEncryptionError: Error {
@@ -7,6 +7,8 @@ enum TokenEncryptionError: Error {
 
 struct TokenEncryption: Sendable {
     private let key: SymmetricKey?
+
+    var isEnabled: Bool { key != nil }
 
     init(secret: String?) {
         guard let secret, let data = Data(base64Encoded: secret), data.count >= 32 else {

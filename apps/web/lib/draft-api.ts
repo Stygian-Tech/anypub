@@ -5,6 +5,14 @@ export function loadDrafts(accountDID: string, signal?: AbortSignal) {
   return apiFetch<Draft[]>(`/api/drafts?accountDID=${encodeURIComponent(accountDID)}`, { signal });
 }
 
+export function loadPublications(accountDID: string, signal?: AbortSignal) {
+  return apiFetch<Publication[]>(`/api/publications?accountDID=${encodeURIComponent(accountDID)}`, { signal });
+}
+
+export function getDraft(draftID: string) {
+  return apiFetch<Draft>(`/api/drafts/${draftID}`);
+}
+
 export function createDraft(draft: Draft) {
   return apiFetch<Draft>("/api/drafts", {
     method: "POST",
@@ -30,6 +38,24 @@ export function scheduleDraft(draftID: string, scheduledAt: Date) {
   return apiFetch<Draft>(`/api/drafts/${draftID}/schedule`, {
     method: "POST",
     body: JSON.stringify({ scheduledAt: scheduledAt.toISOString() }),
+  });
+}
+
+export function publishDraft(draftID: string) {
+  return apiFetch<{
+    documentURI: string;
+    documentCID: string;
+    platformDocumentURI?: string;
+    platformDocumentCID?: string;
+    calendarEventURI?: string;
+    calendarEventCID?: string;
+  }>(`/api/drafts/${draftID}/publish`, { method: "POST" });
+}
+
+export function syncPublications(accountDID: string) {
+  return apiFetch<Publication[]>("/api/publications/sync", {
+    method: "POST",
+    body: JSON.stringify({ accountDID }),
   });
 }
 
