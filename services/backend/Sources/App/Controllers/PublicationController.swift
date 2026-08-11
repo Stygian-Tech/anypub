@@ -24,12 +24,14 @@ struct PublicationController: RouteCollection {
         let records = try await ATProtoXRPCClient().listPublications(
             account: account,
             tokenEncryption: req.application.tokenEncryption,
+            database: req.db,
             client: req.client
         )
 
         for record in records {
             let host = PublicationHostDetector.detect(
                 themeType: record.value.theme?.type,
+                themeURI: record.value.theme?.uri,
                 themeName: record.value.theme?.name,
                 publicationURL: record.value.url
             )

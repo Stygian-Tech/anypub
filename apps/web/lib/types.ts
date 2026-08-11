@@ -1,5 +1,5 @@
 export type LinkedAccount = {
-  id: string;
+  id?: string;
   did: string;
   handle: string;
   displayName?: string;
@@ -46,6 +46,8 @@ export type Draft = {
   publishedAt?: string;
   documentURI?: string;
   documentCID?: string;
+  platformDocumentURI?: string;
+  platformDocumentCID?: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -19,6 +19,21 @@ final class OAuthStateRecord: Model, Content, @unchecked Sendable {
     @Field(key: "redirect_url")
     var redirectURL: String
 
+    @OptionalField(key: "authorization_server")
+    var authorizationServer: String?
+
+    @OptionalField(key: "token_endpoint")
+    var tokenEndpoint: String?
+
+    @OptionalField(key: "pds_url")
+    var pdsURL: String?
+
+    @OptionalField(key: "dpop_key_json")
+    var dpopKeyJSON: String?
+
+    @OptionalField(key: "expected_did")
+    var expectedDID: String?
+
     @Field(key: "created_at")
     var createdAt: Date
 
@@ -33,6 +48,11 @@ final class OAuthStateRecord: Model, Content, @unchecked Sendable {
         handle: String,
         codeVerifier: String,
         redirectURL: String,
+        authorizationServer: String? = nil,
+        tokenEndpoint: String? = nil,
+        pdsURL: String? = nil,
+        dpopKeyJSON: String? = nil,
+        expectedDID: String? = nil,
         createdAt: Date = Date(),
         expiresAt: Date
     ) {
@@ -41,6 +61,11 @@ final class OAuthStateRecord: Model, Content, @unchecked Sendable {
         self.handle = handle
         self.codeVerifier = codeVerifier
         self.redirectURL = redirectURL
+        self.authorizationServer = authorizationServer
+        self.tokenEndpoint = tokenEndpoint
+        self.pdsURL = pdsURL
+        self.dpopKeyJSON = dpopKeyJSON
+        self.expectedDID = expectedDID
         self.createdAt = createdAt
         self.expiresAt = expiresAt
     }

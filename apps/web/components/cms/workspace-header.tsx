@@ -12,6 +12,7 @@ export function WorkspaceHeader({
   theme,
   publications,
   isSyncing,
+  isPublishing,
   canPublish,
   onThemeChange,
   onSync,
@@ -21,6 +22,7 @@ export function WorkspaceHeader({
   theme: ThemePreference;
   publications: Publication[];
   isSyncing: boolean;
+  isPublishing: boolean;
   canPublish: boolean;
   onThemeChange: (theme: ThemePreference) => void;
   onSync: () => void;
@@ -45,9 +47,9 @@ export function WorkspaceHeader({
           <TooltipContent>Sync publications</TooltipContent>
         </Tooltip>
         <NewDraftDialog publications={publications} onCreate={onCreateDraft} />
-        <Button size="sm" onClick={onPublish} disabled={!canPublish}>
-          <RocketIcon data-icon="inline-start" />
-          Publish
+        <Button size="sm" onClick={onPublish} disabled={!canPublish || isPublishing}>
+          <RocketIcon data-icon="inline-start" className={cn(isPublishing && "animate-pulse")} />
+          {isPublishing ? "Publishing…" : "Publish"}
         </Button>
       </div>
     </header>

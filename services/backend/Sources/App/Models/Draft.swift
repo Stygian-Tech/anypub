@@ -69,6 +69,12 @@ final class Draft: Model, Content, @unchecked Sendable {
     @OptionalField(key: "document_cid")
     var documentCID: String?
 
+    @OptionalField(key: "platform_document_uri")
+    var platformDocumentURI: String?
+
+    @OptionalField(key: "platform_document_cid")
+    var platformDocumentCID: String?
+
     @Field(key: "created_at")
     var createdAt: Date
 

@@ -2,6 +2,8 @@ import Foundation
 
 struct AppConfig: Sendable {
     let publicURL: String
+    let webPublicURL: String
+    let allowedOrigins: [String]
     let dataDirectory: String
     let sqlitePath: String
     let uploadsDirectory: String
@@ -14,12 +16,19 @@ struct AppConfig: Sendable {
 
     static func load(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppConfig {
         let publicURL = environment["APP_PUBLIC_URL"]?.nilIfBlank ?? "http://localhost:8080"
+        let webPublicURL = environment["WEB_PUBLIC_URL"]?.nilIfBlank ?? "http://localhost:3000"
+        let allowedOrigins = (environment["ALLOWED_ORIGINS"]?.nilIfBlank ?? webPublicURL)
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         let dataDirectory = environment["ANYPUB_DATA_DIR"]?.nilIfBlank ?? "data"
         let uploadsDirectory = environment["UPLOADS_DIR"]?.nilIfBlank ?? "\(dataDirectory)/uploads"
         let sqlitePath = environment["SQLITE_PATH"]?.nilIfBlank ?? "\(dataDirectory)/anypub.sqlite"
 
         return AppConfig(
             publicURL: publicURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+            webPublicURL: webPublicURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+            allowedOrigins: allowedOrigins.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "/")) },
             dataDirectory: dataDirectory,
             sqlitePath: sqlitePath,
             uploadsDirectory: uploadsDirectory,

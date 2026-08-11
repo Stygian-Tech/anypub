@@ -23,9 +23,10 @@ struct AuthController: RouteCollection {
         return try await ATProtoOAuthService().start(handle: input.handle, redirectURL: input.redirectURL, req: req)
     }
 
-    func callback(req: Request) async throws -> OAuthCallbackResponse {
+    func callback(req: Request) async throws -> Response {
         guard let state = req.query[String.self, at: "state"],
-              let code = req.query[String.self, at: "code"]
+              let code = req.query[String.self, at: "code"],
+              let issuer = req.query[String.self, at: "iss"]
         else {
             throw Abort(.badRequest, reason: "Missing OAuth state or code")
         }
@@ -36,14 +37,40 @@ struct AuthController: RouteCollection {
             try await stateRecord.delete(on: req.db)
             throw Abort(.badRequest, reason: "OAuth state expired")
         }
-        try await stateRecord.delete(on: req.db)
-        return OAuthCallbackResponse(
-            ok: true,
-            state: state,
+        let completion = try await ATProtoOAuthService().complete(
+            state: stateRecord,
             code: code,
-            handle: stateRecord.handle,
-            redirectURL: stateRecord.redirectURL
+            issuer: issuer,
+            req: req
         )
+        let encryption = req.application.tokenEncryption
+        if let account = try await LinkedAccount.query(on: req.db)
+            .filter(\.$did, .equal, completion.did)
+            .first() {
+            account.handle = completion.handle
+            account.pdsURL = completion.pdsURL
+            account.scope = completion.scope
+            account.accessToken = try encryption.seal(completion.accessToken)
+            account.refreshToken = try encryption.seal(completion.refreshToken)
+            account.tokenEndpoint = completion.tokenEndpoint
+            account.dpopKeyJSON = try encryption.seal(completion.dpopKeyJSON)
+            account.updatedAt = Date()
+            try await account.save(on: req.db)
+        } else {
+            let account = LinkedAccount(
+                did: completion.did,
+                handle: completion.handle,
+                pdsURL: completion.pdsURL,
+                scope: completion.scope,
+                accessToken: try encryption.seal(completion.accessToken),
+                refreshToken: try encryption.seal(completion.refreshToken),
+                tokenEndpoint: completion.tokenEndpoint,
+                dpopKeyJSON: try encryption.seal(completion.dpopKeyJSON)
+            )
+            try await account.save(on: req.db)
+        }
+        try await stateRecord.delete(on: req.db)
+        return req.redirect(to: stateRecord.redirectURL)
     }
 }
 
@@ -54,12 +81,4 @@ struct JWKSResponse: Content {
 struct OAuthStartRequest: Content {
     let handle: String
     let redirectURL: String?
-}
-
-struct OAuthCallbackResponse: Content {
-    let ok: Bool
-    let state: String
-    let code: String
-    let handle: String
-    let redirectURL: String
 }

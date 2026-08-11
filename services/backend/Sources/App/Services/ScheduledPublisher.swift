@@ -29,14 +29,27 @@ struct ScheduledPublisher {
     }
 }
 
-final class ScheduledPublisherLifecycle: LifecycleHandler {
+final class ScheduledPublisherLifecycle: LifecycleHandler, @unchecked Sendable {
+    private var task: Task<Void, Never>?
+
     func didBoot(_ application: Application) throws {
         guard application.environment != .testing else { return }
-        Task.detached {
+        task = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-                application.logger.info("Scheduled publisher tick")
+                let request = Request(application: application, on: application.eventLoopGroup.next())
+                do {
+                    let run = try await ScheduledPublisher().run(req: request)
+                    application.logger.info("Scheduled publisher completed: \(run.publishedCount) published, \(run.failedCount) failed")
+                } catch {
+                    application.logger.error("Scheduled publisher tick failed: \(String(describing: error))")
+                }
+                try? await Task.sleep(for: .seconds(60))
             }
         }
+    }
+
+    func shutdown(_ application: Application) {
+        task?.cancel()
+        task = nil
     }
 }

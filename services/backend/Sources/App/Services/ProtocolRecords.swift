@@ -33,7 +33,7 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
     let coverImage: ATProtoBlobRef?
     let description: String?
     let textContent: String?
-    let content: [TargetContentBlock]?
+    let content: JSONValue?
     let updatedAt: Date?
 
     enum CodingKeys: String, CodingKey {
@@ -51,19 +51,37 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
     }
 }
 
-struct TargetContentBlock: Codable, Equatable, Sendable {
-    let type: String
-    let style: String
-    let text: String
-    let level: Int?
-    let sequence: Int?
+struct StrongReference: Codable, Equatable, Sendable {
+    let type = "com.atproto.repo.strongRef"
+    let uri: String
+    let cid: String
 
     enum CodingKeys: String, CodingKey {
         case type = "$type"
-        case style
-        case text
-        case level
-        case sequence
+        case uri
+        case cid
+    }
+}
+
+struct OffprintArticleRecord: Codable, Equatable, Sendable {
+    let type = "app.offprint.document.article"
+    let document: StrongReference
+
+    enum CodingKeys: String, CodingKey {
+        case type = "$type"
+        case document
+    }
+}
+
+struct PcktDocumentRecord: Codable, Equatable, Sendable {
+    let type = "blog.pckt.document"
+    let document: StrongReference
+    let site: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "$type"
+        case document
+        case site
     }
 }
 
@@ -97,7 +115,7 @@ struct CalendarEventRecord: Codable, Equatable, Sendable {
 }
 
 struct ProtocolRecordBuilder: Sendable {
-    func documentRecord(draft: Draft, cover: ATProtoBlobRef?, host: PublicationHost? = nil) -> StandardSiteDocumentRecord {
+    func documentRecord(draft: Draft, cover: ATProtoBlobRef?, content: JSONValue? = nil) -> StandardSiteDocumentRecord {
         StandardSiteDocumentRecord(
             site: draft.publicationURI,
             title: draft.title,
@@ -107,7 +125,7 @@ struct ProtocolRecordBuilder: Sendable {
             coverImage: cover,
             description: draft.excerpt,
             textContent: draft.plaintext,
-            content: host.map { TargetContentAdapter(host: $0).blocks(from: draft.markdown) },
+            content: content,
             updatedAt: Date()
         )
     }
@@ -130,50 +148,6 @@ struct ProtocolRecordBuilder: Sendable {
             description: draft.excerpt ?? draft.plaintext.prefixString(maxLength: 280),
             uris: uris
         )
-    }
-}
-
-struct TargetContentAdapter: Sendable {
-    let host: PublicationHost
-
-    func blocks(from markdown: String) -> [TargetContentBlock] {
-        MarkdownContentTranslator.blocks(from: markdown).map { block in
-            TargetContentBlock(
-                type: blockType,
-                style: style(for: block),
-                text: block.text,
-                level: block.level,
-                sequence: block.sequence
-            )
-        }
-    }
-
-    private var blockType: String {
-        switch host {
-        case .leaflet:
-            return "pub.leaflet.blocks.text"
-        case .offprint:
-            return "pub.offprint.blocks.text"
-        case .pckt:
-            return "app.pckt.blocks.text"
-        }
-    }
-
-    private func style(for block: MarkdownContentBlock) -> String {
-        switch (host, block.style) {
-        case (_, .paragraph):
-            return "paragraph"
-        case (_, .heading):
-            return "heading\(block.level ?? 1)"
-        case (_, .quote):
-            return "quote"
-        case (_, .unorderedListItem):
-            return "unorderedListItem"
-        case (_, .orderedListItem):
-            return "orderedListItem"
-        case (_, .code):
-            return "code"
-        }
     }
 }
 

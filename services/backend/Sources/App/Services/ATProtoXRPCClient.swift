@@ -1,4 +1,5 @@
 import Foundation
+import Fluent
 import NIOCore
 import Vapor
 
@@ -91,7 +92,7 @@ struct DeleteRecordInput: Content, Sendable {
 }
 
 struct ATProtoXRPCClient: Sendable {
-    func listPublications(account: LinkedAccount, tokenEncryption: TokenEncryption, client: Client) async throws -> [RepositoryRecord<PublicationRecordValue>] {
+    func listPublications(account: LinkedAccount, tokenEncryption: TokenEncryption, database: Database, client: Client) async throws -> [RepositoryRecord<PublicationRecordValue>] {
         var all: [RepositoryRecord<PublicationRecordValue>] = []
         var cursor: String?
 
@@ -103,9 +104,11 @@ struct ATProtoXRPCClient: Sendable {
             ]
             if let cursor { query["cursor"] = cursor }
             let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.listRecords", query: query)
-            let response = try await client.get(URI(string: uri)) { req in
-                try authorize(req: &req, account: account, tokenEncryption: tokenEncryption)
-            }.get()
+            let response = try await send(
+                method: .GET, url: uri, account: account,
+                tokenEncryption: tokenEncryption, database: database, client: client
+            )
+            try requireSuccess(response, operation: "publication listing")
             let page = try response.content.decode(ListRecordsResponse<PublicationRecordValue>.self)
             all.append(contentsOf: page.records)
             cursor = page.cursor
@@ -117,13 +120,34 @@ struct ATProtoXRPCClient: Sendable {
     func createDocument(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
+        database: Database,
         record: StandardSiteDocumentRecord,
         client: Client
     ) async throws -> CreateRecordResponse {
         try await createRecord(
             account: account,
             tokenEncryption: tokenEncryption,
+            database: database,
             collection: "site.standard.document",
+            record: record,
+            client: client
+        )
+    }
+
+    func putDocument(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        rkey: String,
+        record: StandardSiteDocumentRecord,
+        client: Client
+    ) async throws -> CreateRecordResponse {
+        try await putRecord(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            collection: "site.standard.document",
+            rkey: rkey,
             record: record,
             client: client
         )
@@ -132,56 +156,147 @@ struct ATProtoXRPCClient: Sendable {
     func createCalendarEvent(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
+        database: Database,
         record: CalendarEventRecord,
         client: Client
     ) async throws -> CreateRecordResponse {
         try await createRecord(
             account: account,
             tokenEncryption: tokenEncryption,
+            database: database,
             collection: "community.lexicon.calendar.event",
             record: record,
             client: client
         )
     }
 
+    func createOffprintArticle(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        record: OffprintArticleRecord,
+        client: Client
+    ) async throws -> CreateRecordResponse {
+        try await createRecord(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            collection: "app.offprint.document.article",
+            record: record,
+            client: client
+        )
+    }
+
+    func putOffprintArticle(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        rkey: String,
+        record: OffprintArticleRecord,
+        client: Client
+    ) async throws -> CreateRecordResponse {
+        try await putRecord(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            collection: "app.offprint.document.article",
+            rkey: rkey,
+            record: record,
+            client: client
+        )
+    }
+
+    func putPcktDocument(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        rkey: String,
+        record: PcktDocumentRecord,
+        client: Client
+    ) async throws -> CreateRecordResponse {
+        try await putRecord(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            collection: "blog.pckt.document",
+            rkey: rkey,
+            record: record,
+            client: client
+        )
+    }
+
+    func recordExists(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        collection: String,
+        rkey: String,
+        client: Client
+    ) async throws -> Bool {
+        let uri = try xrpcURL(
+            pdsURL: account.pdsURL,
+            method: "com.atproto.repo.getRecord",
+            query: ["repo": account.did, "collection": collection, "rkey": rkey]
+        )
+        let response = try await send(
+            method: .GET, url: uri, account: account,
+            tokenEncryption: tokenEncryption, database: database, client: client
+        )
+        if response.status == .notFound { return false }
+        guard (200..<300).contains(response.status.code) else {
+            throw Abort(.badGateway, reason: "PDS rejected record lookup")
+        }
+        return true
+    }
+
     func putCalendarEvent(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
+        database: Database,
         rkey: String,
         record: CalendarEventRecord,
         client: Client
     ) async throws -> CreateRecordResponse {
-        let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.putRecord")
-        let input = PutRecordInput(repo: account.did, collection: "community.lexicon.calendar.event", rkey: rkey, record: record)
-        let response = try await client.post(URI(string: uri)) { req in
-            try authorize(req: &req, account: account, tokenEncryption: tokenEncryption)
-            try req.content.encode(input)
-        }.get()
-        return try response.content.decode(CreateRecordResponse.self)
+        try await putRecord(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            collection: "community.lexicon.calendar.event",
+            rkey: rkey,
+            record: record,
+            client: client
+        )
     }
 
     func uploadBlob(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
+        database: Database,
         data: Data,
         mimeType: String,
         client: Client
     ) async throws -> ATProtoBlobRef {
         let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.uploadBlob")
-        let response = try await client.post(URI(string: uri)) { req in
-            try authorize(req: &req, account: account, tokenEncryption: tokenEncryption)
+        let response = try await send(
+            method: .POST, url: uri, account: account,
+            tokenEncryption: tokenEncryption, database: database, client: client
+        ) { req in
             let parts = mimeType.components(separatedBy: "/")
             req.headers.contentType = HTTPMediaType(type: parts.first ?? "application", subType: parts.dropFirst().first ?? "octet-stream")
             var buffer = ByteBufferAllocator().buffer(capacity: data.count)
             buffer.writeBytes(data)
             req.body = buffer
-        }.get()
+        }
+        guard (200..<300).contains(response.status.code) else {
+            throw Abort(.badGateway, reason: "PDS rejected blob upload")
+        }
         return try response.content.decode(UploadBlobResponse.self).blob
     }
 
     func deleteRecord(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
+        database: Database,
         recordURI: String,
         client: Client
     ) async throws {
@@ -192,10 +307,12 @@ struct ATProtoXRPCClient: Sendable {
 
         let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.deleteRecord")
         let input = DeleteRecordInput(repo: reference.repo, collection: reference.collection, rkey: reference.rkey)
-        let response = try await client.post(URI(string: uri)) { req in
-            try authorize(req: &req, account: account, tokenEncryption: tokenEncryption)
+        let response = try await send(
+            method: .POST, url: uri, account: account,
+            tokenEncryption: tokenEncryption, database: database, client: client
+        ) { req in
             try req.content.encode(input)
-        }.get()
+        }
         guard (200..<300).contains(response.status.code) else {
             throw Abort(.badGateway, reason: "PDS rejected record deletion")
         }
@@ -204,22 +321,185 @@ struct ATProtoXRPCClient: Sendable {
     private func createRecord<Record: Codable & Sendable>(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
+        database: Database,
         collection: String,
         record: Record,
         client: Client
     ) async throws -> CreateRecordResponse {
         let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.createRecord")
         let input = CreateRecordInput(repo: account.did, collection: collection, record: record)
-        let response = try await client.post(URI(string: uri)) { req in
-            try authorize(req: &req, account: account, tokenEncryption: tokenEncryption)
+        let response = try await send(
+            method: .POST, url: uri, account: account,
+            tokenEncryption: tokenEncryption, database: database, client: client
+        ) { req in
             try req.content.encode(input)
-        }.get()
+        }
+        guard (200..<300).contains(response.status.code) else {
+            throw Abort(.badGateway, reason: "PDS rejected record creation")
+        }
         return try response.content.decode(CreateRecordResponse.self)
     }
 
-    private func authorize(req: inout ClientRequest, account: LinkedAccount, tokenEncryption: TokenEncryption) throws {
-        let token = try tokenEncryption.open(account.accessToken)
-        req.headers.add(name: .authorization, value: "DPoP \(token)")
+    private func putRecord<Record: Codable & Sendable>(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        collection: String,
+        rkey: String,
+        record: Record,
+        client: Client
+    ) async throws -> CreateRecordResponse {
+        let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.putRecord")
+        let input = PutRecordInput(repo: account.did, collection: collection, rkey: rkey, record: record)
+        let response = try await send(
+            method: .POST, url: uri, account: account,
+            tokenEncryption: tokenEncryption, database: database, client: client
+        ) { req in
+            try req.content.encode(input)
+        }
+        guard (200..<300).contains(response.status.code) else {
+            throw Abort(.badGateway, reason: "PDS rejected record update")
+        }
+        return try response.content.decode(CreateRecordResponse.self)
+    }
+
+    private func send(
+        method: HTTPMethod,
+        url: String,
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        client: Client,
+        configure: @escaping @Sendable (inout ClientRequest) throws -> Void = { _ in }
+    ) async throws -> ClientResponse {
+        guard let encryptedKey = account.dpopKeyJSON else {
+            throw Abort(.conflict, reason: "Linked account must be reauthorized for DPoP publishing")
+        }
+        let dpopKey = try DPoPKey(json: tokenEncryption.open(encryptedKey))
+        var accessToken = try tokenEncryption.open(account.accessToken)
+        var refreshed = false
+        let nonceKey = "\(account.did)|\(URLComponents(string: url)?.host ?? account.pdsURL)"
+
+        for _ in 0..<4 {
+            let nonce = await dpopNonces.nonce(for: nonceKey)
+            let proof = try dpopKey.proof(httpMethod: method.rawValue, url: url, accessToken: accessToken, nonce: nonce)
+            let response: ClientResponse
+            switch method {
+            case .GET:
+                response = try await client.get(URI(string: url)) { request in
+                    request.headers.replaceOrAdd(name: .authorization, value: "DPoP \(accessToken)")
+                    request.headers.replaceOrAdd(name: "DPoP", value: proof)
+                    try configure(&request)
+                }.get()
+            case .POST:
+                response = try await client.post(URI(string: url)) { request in
+                    request.headers.replaceOrAdd(name: .authorization, value: "DPoP \(accessToken)")
+                    request.headers.replaceOrAdd(name: "DPoP", value: proof)
+                    try configure(&request)
+                }.get()
+            default:
+                throw Abort(.internalServerError, reason: "Unsupported authenticated HTTP method")
+            }
+
+            guard let responseNonce = response.headers.first(name: "DPoP-Nonce") else {
+                throw Abort(.badGateway, reason: "PDS omitted its required DPoP nonce")
+            }
+            if responseNonce != nonce {
+                await dpopNonces.set(responseNonce, for: nonceKey)
+                if response.status == .badRequest || response.status == .unauthorized { continue }
+            }
+            if response.status == .unauthorized, !refreshed {
+                accessToken = try await refresh(
+                    account: account,
+                    tokenEncryption: tokenEncryption,
+                    database: database,
+                    client: client,
+                    dpopKey: dpopKey
+                )
+                refreshed = true
+                continue
+            }
+            return response
+        }
+        throw Abort(.badGateway, reason: "PDS authentication failed after DPoP nonce and token refresh retries")
+    }
+
+    private func refresh(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        client: Client,
+        dpopKey: DPoPKey
+    ) async throws -> String {
+        try await tokenRefreshCoordinator.run(for: account.did) {
+            try await performRefresh(
+                account: account,
+                tokenEncryption: tokenEncryption,
+                database: database,
+                client: client,
+                dpopKey: dpopKey
+            )
+        }
+    }
+
+    private func performRefresh(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        client: Client,
+        dpopKey: DPoPKey
+    ) async throws -> String {
+        guard let tokenEndpoint = account.tokenEndpoint,
+              !tokenEndpoint.isEmpty
+        else { throw Abort(.conflict, reason: "Linked account must be reauthorized before its token can refresh") }
+        let refreshToken = try tokenEncryption.open(account.refreshToken)
+        guard !refreshToken.isEmpty else {
+            throw Abort(.conflict, reason: "Linked account has no refresh token; reconnect it")
+        }
+        let body = formEncoded([
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken,
+            "client_id": "\(AppConfig.load().publicURL)/oauth/client-metadata.json",
+        ])
+        var nonce: String?
+        for attempt in 0..<2 {
+            let proof = try dpopKey.proof(httpMethod: "POST", url: tokenEndpoint, nonce: nonce)
+            let response = try await client.post(URI(string: tokenEndpoint)) { request in
+                request.headers.contentType = .urlEncodedForm
+                request.headers.replaceOrAdd(name: "DPoP", value: proof)
+                var buffer = ByteBufferAllocator().buffer(capacity: body.utf8.count)
+                buffer.writeString(body)
+                request.body = buffer
+            }.get()
+            if (200..<300).contains(response.status.code) {
+                guard response.headers.first(name: "DPoP-Nonce") != nil else {
+                    throw Abort(.badGateway, reason: "Authorization server omitted its required DPoP nonce")
+                }
+                let token = try response.content.decode(OAuthTokenResponse.self)
+                guard token.tokenType.caseInsensitiveCompare("DPoP") == .orderedSame,
+                      token.subject == account.did,
+                      token.scope.split(separator: " ").contains("atproto")
+                else { throw Abort(.badGateway, reason: "Authorization server returned an invalid refreshed token") }
+                account.accessToken = try tokenEncryption.seal(token.accessToken)
+                account.refreshToken = try tokenEncryption.seal(token.refreshToken ?? refreshToken)
+                account.scope = token.scope
+                account.updatedAt = Date()
+                try await account.save(on: database)
+                return token.accessToken
+            }
+            if attempt == 0, let nextNonce = response.headers.first(name: "DPoP-Nonce") {
+                nonce = nextNonce
+                continue
+            }
+            throw Abort(.conflict, reason: "Linked account token refresh failed; reconnect it")
+        }
+        throw Abort(.conflict, reason: "Linked account token refresh failed; reconnect it")
+    }
+
+    private func requireSuccess(_ response: ClientResponse, operation: String) throws {
+        guard (200..<300).contains(response.status.code) else {
+            throw Abort(.badGateway, reason: "PDS rejected \(operation)")
+        }
     }
 
     private func xrpcURL(pdsURL: String, method: String, query: [String: String] = [:]) throws -> String {
@@ -231,6 +511,30 @@ struct ATProtoXRPCClient: Sendable {
             throw Abort(.badRequest, reason: "Invalid PDS URL")
         }
         return url
+    }
+}
+
+private let dpopNonces = DPoPNonceStore()
+private let tokenRefreshCoordinator = TokenRefreshCoordinator()
+
+private actor DPoPNonceStore {
+    private var values: [String: String] = [:]
+    func nonce(for key: String) -> String? { values[key] }
+    func set(_ nonce: String, for key: String) { values[key] = nonce }
+}
+
+private actor TokenRefreshCoordinator {
+    private var tasks: [String: Task<String, Error>] = [:]
+
+    func run(
+        for did: String,
+        operation: @escaping @Sendable () async throws -> String
+    ) async throws -> String {
+        if let task = tasks[did] { return try await task.value }
+        let task = Task { try await operation() }
+        tasks[did] = task
+        defer { tasks[did] = nil }
+        return try await task.value
     }
 }
 

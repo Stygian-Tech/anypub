@@ -25,6 +25,12 @@ final class LinkedAccount: Model, Content, @unchecked Sendable {
     @Field(key: "refresh_token")
     var refreshToken: String
 
+    @OptionalField(key: "token_endpoint")
+    var tokenEndpoint: String?
+
+    @OptionalField(key: "dpop_key_json")
+    var dpopKeyJSON: String?
+
     @Field(key: "linked_at")
     var linkedAt: Date
 
@@ -41,6 +47,8 @@ final class LinkedAccount: Model, Content, @unchecked Sendable {
         scope: String,
         accessToken: String,
         refreshToken: String,
+        tokenEndpoint: String? = nil,
+        dpopKeyJSON: String? = nil,
         linkedAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -51,6 +59,8 @@ final class LinkedAccount: Model, Content, @unchecked Sendable {
         self.scope = scope
         self.accessToken = accessToken
         self.refreshToken = refreshToken
+        self.tokenEndpoint = tokenEndpoint
+        self.dpopKeyJSON = dpopKeyJSON
         self.linkedAt = linkedAt
         self.updatedAt = updatedAt
     }

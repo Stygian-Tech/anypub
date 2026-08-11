@@ -1,0 +1,53 @@
+import Fluent
+
+struct AddPublishingState: AsyncMigration {
+    func prepare(on database: any Database) async throws {
+        try await database.schema(Draft.schema)
+            .field("platform_document_uri", .string)
+            .update()
+        try await database.schema(Draft.schema)
+            .field("platform_document_cid", .string)
+            .update()
+        try await database.schema(LinkedAccount.schema)
+            .field("token_endpoint", .string)
+            .update()
+        try await database.schema(LinkedAccount.schema)
+            .field("dpop_key_json", .string)
+            .update()
+        try await database.schema(OAuthStateRecord.schema)
+            .field("authorization_server", .string)
+            .update()
+        try await database.schema(OAuthStateRecord.schema)
+            .field("token_endpoint", .string)
+            .update()
+        try await database.schema(OAuthStateRecord.schema)
+            .field("pds_url", .string)
+            .update()
+        try await database.schema(OAuthStateRecord.schema)
+            .field("dpop_key_json", .string)
+            .update()
+        try await database.schema(OAuthStateRecord.schema)
+            .field("expected_did", .string)
+            .update()
+    }
+
+    func revert(on database: any Database) async throws {
+        try await database.schema(OAuthStateRecord.schema)
+            .deleteField("expected_did")
+            .update()
+        try await database.schema(OAuthStateRecord.schema)
+            .deleteField("dpop_key_json")
+            .update()
+        try await database.schema(OAuthStateRecord.schema).deleteField("pds_url").update()
+        try await database.schema(OAuthStateRecord.schema).deleteField("token_endpoint").update()
+        try await database.schema(OAuthStateRecord.schema).deleteField("authorization_server").update()
+        try await database.schema(LinkedAccount.schema)
+            .deleteField("dpop_key_json")
+            .update()
+        try await database.schema(LinkedAccount.schema).deleteField("token_endpoint").update()
+        try await database.schema(Draft.schema)
+            .deleteField("platform_document_cid")
+            .update()
+        try await database.schema(Draft.schema).deleteField("platform_document_uri").update()
+    }
+}
