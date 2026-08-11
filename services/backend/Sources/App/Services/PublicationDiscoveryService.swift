@@ -92,6 +92,7 @@ struct PublicationDiscoveryService: PublicationDiscovering, Sendable {
                     existing.name = publication.name
                     existing.url = publication.url
                     existing.publicationDescription = publication.description
+                    existing.iconCID = publication.iconCID
                     existing.themeType = publication.themeType
                     existing.themeName = publication.themeName
                     existing.host = host?.rawValue
@@ -105,6 +106,7 @@ struct PublicationDiscoveryService: PublicationDiscovering, Sendable {
                         name: publication.name,
                         url: publication.url,
                         publicationDescription: publication.description,
+                        iconCID: publication.iconCID,
                         themeType: publication.themeType,
                         themeName: publication.themeName,
                         host: host,
@@ -136,6 +138,7 @@ struct DiscoveredPublication: Equatable, Sendable {
     let name: String
     let url: String
     let description: String?
+    let iconCID: String?
     let themeType: String?
     let themeURI: String?
     let themeName: String?
@@ -165,17 +168,11 @@ struct DiscoveredPublication: Equatable, Sendable {
         self.name = name
         self.url = url
         description = value["description"]?.stringValue
+        iconCID = value["icon"]?.blobCID
         themeType = themeObject?["$type"]?.stringValue
         themeURI = theme?.stringValue ?? themeObject?["uri"]?.stringValue
         themeName = themeObject?["name"]?.stringValue
         rkey = reference.rkey
-    }
-}
-
-private extension JSONValue {
-    var stringValue: String? {
-        guard case .string(let value) = self else { return nil }
-        return value
     }
 }
 

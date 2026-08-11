@@ -13,6 +13,12 @@ final class LinkedAccount: Model, Content, @unchecked Sendable {
     @Field(key: "handle")
     var handle: String
 
+    @OptionalField(key: "display_name")
+    var displayName: String?
+
+    @OptionalField(key: "avatar_cid")
+    var avatarCID: String?
+
     @Field(key: "pds_url")
     var pdsURL: String
 
@@ -43,6 +49,8 @@ final class LinkedAccount: Model, Content, @unchecked Sendable {
         id: UUID? = nil,
         did: String,
         handle: String,
+        displayName: String? = nil,
+        avatarCID: String? = nil,
         pdsURL: String,
         scope: String,
         accessToken: String,
@@ -55,6 +63,8 @@ final class LinkedAccount: Model, Content, @unchecked Sendable {
         self.id = id
         self.did = did
         self.handle = handle
+        self.displayName = displayName
+        self.avatarCID = avatarCID
         self.pdsURL = pdsURL
         self.scope = scope
         self.accessToken = accessToken

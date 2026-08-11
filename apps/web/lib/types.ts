@@ -18,6 +18,7 @@ export type Publication = {
   name: string;
   url: string;
   description?: string;
+  iconURL?: string;
   themeType?: string;
   themeName?: string;
   host?: "leaflet" | "offprint" | "pckt";

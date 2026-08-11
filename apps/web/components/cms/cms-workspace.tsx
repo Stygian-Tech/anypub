@@ -18,6 +18,7 @@ import {
   EditScheduleDialog,
 } from "@/components/cms/post-dialogs";
 import { RightPanel } from "@/components/cms/right-panel";
+import { PublicationsDashboard } from "@/components/cms/publications-dashboard";
 import { WorkspaceHeader } from "@/components/cms/workspace-header";
 import { ColumnResizeHandle, useWorkspaceLayout } from "@/components/cms/workspace-layout";
 import { useAppearancePreferences } from "@/components/cms/use-appearance-preferences";
@@ -36,6 +37,7 @@ export function CmsWorkspace() {
   const [accountLoadState, setAccountLoadState] = React.useState<"loading" | "ready" | "error">("loading");
   const [publications, setPublications] = React.useState<Publication[]>([]);
   const [drafts, setDrafts] = React.useState<Draft[]>([]);
+  const [activeView, setActiveView] = React.useState<"posts" | "publications">("posts");
   const activeAccount = accounts[0];
   const activeAccountDID = activeAccount?.did ?? "";
   const [selectedDraftID, setSelectedDraftID] = React.useState("");
@@ -119,16 +121,17 @@ export function CmsWorkspace() {
 
     draftAPI.loadPublications(activeAccountDID, controller.signal)
       .then(async (persistedPublications) => {
-        if (persistedPublications.length > 0) {
-          setPublications(persistedPublications);
-          return;
-        }
+        setPublications(persistedPublications);
+        setIsSyncing(true);
         const syncedPublications = await draftAPI.syncPublications(activeAccountDID);
         if (!controller.signal.aborted) setPublications(syncedPublications);
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         toast.error("Could not load saved publications");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsSyncing(false);
       });
 
     return () => controller.abort();
@@ -425,6 +428,7 @@ export function CmsWorkspace() {
       <div className="app-appearance-scope flex h-[calc(100dvh-var(--environment-banner-height,0px))] min-h-0 bg-background text-foreground" style={shellStyle}>
         <main className="flex min-w-0 flex-1 flex-col">
           <WorkspaceHeader
+            activeView={activeView}
             theme={themePreference}
             publications={accountPublications}
             isSyncing={isSyncing}
@@ -436,8 +440,16 @@ export function CmsWorkspace() {
             onCreateDraft={createDraft}
             onPublish={publishDraft}
             onLogOut={logOut}
+            onViewChange={setActiveView}
           />
 
+          {activeView === "publications" ? (
+            <PublicationsDashboard
+              publications={accountPublications}
+              isSyncing={isSyncing}
+              onSync={syncPublications}
+            />
+          ) : (
           <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[var(--workbench-columns)]">
             <DraftList
               drafts={visibleDrafts}
@@ -508,6 +520,7 @@ export function CmsWorkspace() {
               onDraftChange={updateDraft}
             />
           </div>
+          )}
         </main>
         <ChangePublicationDialog
           draft={publicationDraft}

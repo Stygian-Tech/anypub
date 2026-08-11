@@ -7,6 +7,30 @@ import VaporTesting
 
 @Suite("Publication discovery")
 struct PublicationDiscoveryTests {
+    @Test("Account profile lookup uses the public PDS endpoint without DPoP")
+    func publicAccountProfileLookup() async throws {
+        try await withApp(configure: configure) { app in
+            let did = "did:plc:public-profile"
+            let record = try repositoryRecord(
+                uri: "at://\(did)/app.bsky.actor.profile/self",
+                value: .object([
+                    "displayName": .string("Public Writer"),
+                    "avatar": testBlob(cid: "avatar-cid"),
+                ])
+            )
+            let payload = try JSONEncoder().encode(record)
+            let client = PublicPublicationClient(eventLoop: app.eventLoopGroup.next(), responseBody: payload)
+
+            let response = try await ATProtoXRPCClient().getAccountProfileRecord(
+                account: linkedAccount(did: did),
+                client: client
+            )
+
+            #expect(response?.value.objectValue?["displayName"]?.stringValue == "Public Writer")
+            #expect(response?.value.objectValue?["avatar"]?.blobCID == "avatar-cid")
+        }
+    }
+
     @Test("Publication listing uses the public PDS endpoint without DPoP")
     func publicPublicationListing() async throws {
         try await withApp(configure: configure) { app in
@@ -80,6 +104,15 @@ struct PublicationDiscoveryTests {
         let genericPublication = try #require(DiscoveredPublication(record: generic, accountDID: did))
         #expect(genericPublication.themeType == nil)
         #expect(genericPublication.themeURI == nil)
+
+        let withIcon = try publicationRecord(
+            did: did,
+            rkey: "icon",
+            name: "Icon",
+            url: "https://icon.example",
+            extras: ["icon": testBlob(cid: "publication-icon-cid")]
+        )
+        #expect(DiscoveredPublication(record: withIcon, accountDID: did)?.iconCID == "publication-icon-cid")
     }
 
     @Test("Only the exact Blento publication rkey is excluded")
@@ -212,7 +245,8 @@ struct PublicationDiscoveryTests {
                     rkey: "update",
                     name: "Updated",
                     url: "https://updated.example",
-                    theme: .object(["$type": .string("app.offprint.theme")])
+                    theme: .object(["$type": .string("app.offprint.theme")]),
+                    extras: ["icon": testBlob(cid: "updated-icon-cid")]
                 ),
                 accountDID: did
             ))
@@ -232,6 +266,7 @@ struct PublicationDiscoveryTests {
             #expect(result.map(\.name) == ["Inserted", "Updated"])
             #expect(result.first(where: { $0.name == "Updated" })?.cid == "test-cid")
             #expect(result.first(where: { $0.name == "Updated" })?.host == "offprint")
+            #expect(result.first(where: { $0.name == "Updated" })?.iconCID == "updated-icon-cid")
             #expect(try await PublicationCache.query(on: app.db).filter(\.$accountDID, .equal, otherDID).count() == 1)
         }
     }
@@ -250,6 +285,27 @@ struct PublicationDiscoveryTests {
                 #expect(response.status == .ok)
                 expectContent([PublicationResponse].self, response) { publications in
                     #expect(publications.map(\.name) == ["Discovered"])
+                    #expect(publications.first?.iconURL == "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did:plc:manual&cid=publication-icon-cid")
+                }
+            }
+        }
+    }
+
+    @Test("Account listing refreshes and returns the display name and avatar URL")
+    func accountIdentityContract() async throws {
+        try await withApp(configure: configure) { app in
+            let did = "did:plc:identity"
+            try await linkedAccount(did: did).save(on: app.db)
+            app.accountProfileDiscovery = FixedAccountProfileDiscovery(
+                displayName: "Sam Writer",
+                avatarCID: "avatar-cid"
+            )
+
+            try await app.testing().test(.GET, "/api/accounts") { response in
+                #expect(response.status == .ok)
+                expectContent([AccountResponse].self, response) { accounts in
+                    #expect(accounts.first?.displayName == "Sam Writer")
+                    #expect(accounts.first?.avatarURL == "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did:plc:identity&cid=avatar-cid")
                 }
             }
         }
@@ -364,8 +420,20 @@ private struct FixedPublicationDiscovery: PublicationDiscovering {
             cid: "cid",
             name: "Discovered",
             url: "https://discovered.example",
-            publicationDescription: nil
+            publicationDescription: nil,
+            iconCID: "publication-icon-cid"
         )]
+    }
+}
+
+private struct FixedAccountProfileDiscovery: AccountProfileDiscovering {
+    let displayName: String
+    let avatarCID: String
+
+    func sync(account: LinkedAccount, req: Request) async throws {
+        account.displayName = displayName
+        account.avatarCID = avatarCID
+        try await account.save(on: req.db)
     }
 }
 
@@ -423,6 +491,15 @@ private func publicationValue(name: String, url: String) -> [String: JSONValue] 
         "url": .string(url),
         "description": .string("Description"),
     ]
+}
+
+private func testBlob(cid: String) -> JSONValue {
+    .object([
+        "$type": .string("blob"),
+        "ref": .object(["$link": .string(cid)]),
+        "mimeType": .string("image/png"),
+        "size": .integer(128),
+    ])
 }
 
 private func repositoryRecord(uri: String, value: JSONValue) throws -> RepositoryRecord<JSONValue> {

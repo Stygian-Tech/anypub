@@ -43,6 +43,25 @@ struct DeleteRecordInput: Content, Sendable {
 }
 
 struct ATProtoXRPCClient: Sendable {
+    func getAccountProfileRecord(
+        account: LinkedAccount,
+        client: Client
+    ) async throws -> RepositoryRecord<JSONValue>? {
+        let uri = try xrpcURL(
+            pdsURL: account.pdsURL,
+            method: "com.atproto.repo.getRecord",
+            query: [
+                "repo": account.did,
+                "collection": "app.bsky.actor.profile",
+                "rkey": "self",
+            ]
+        )
+        let response = try await client.get(URI(string: uri)).get()
+        if response.status == .notFound { return nil }
+        try requireSuccess(response, operation: "account profile lookup")
+        return try response.content.decode(RepositoryRecord<JSONValue>.self)
+    }
+
     func listPublicationRecordsPage(
         account: LinkedAccount,
         cursor: String?,

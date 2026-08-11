@@ -43,6 +43,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateAnyPubTables())
     app.migrations.add(AddDraftBlockDocuments())
     app.migrations.add(AddPublishingState())
+    app.migrations.add(AddDiscoveryImages())
     if app.environment == .development || app.environment == .testing {
         app.migrations.add(SeedDevelopmentDrafts())
     }

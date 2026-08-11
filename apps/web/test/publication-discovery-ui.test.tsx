@@ -30,6 +30,79 @@ afterEach(() => {
 });
 
 describe("publication discovery UI", () => {
+  it("shows account identity, publication icons, and a complete publications inventory", async () => {
+    const account = {
+      id: "account-id",
+      did: "did:plc:writer",
+      handle: "writer.example",
+      displayName: "Sam Writer",
+      avatarURL: "https://pds.example/avatar.jpg",
+      pdsURL: "https://pds.example",
+      scope: "atproto",
+      linkedAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const publications = [
+      {
+        id: "publication-one",
+        accountDID: account.did,
+        uri: `at://${account.did}/site.standard.publication/field-notes`,
+        cid: "publication-cid",
+        name: "Field Notes",
+        url: "https://field-notes.example",
+        description: "Essays from the field.",
+        iconURL: "https://pds.example/field-notes.png",
+        host: "leaflet",
+        syncedAt: "2026-08-11T20:00:00.000Z",
+      },
+      {
+        id: "publication-two",
+        accountDID: account.did,
+        uri: `at://${account.did}/site.standard.publication/workbench`,
+        cid: "publication-two-cid",
+        name: "Workbench",
+        url: "https://workbench.example",
+        syncedAt: "2026-08-11T20:00:00.000Z",
+      },
+    ];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith("/api/accounts")
+        ? [account]
+        : url.includes("/api/publications")
+          ? publications
+          : [];
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CmsWorkspace />);
+
+    expect(await screen.findByText("Sam Writer")).toBeInTheDocument();
+    expect(screen.getByText("@writer.example")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Sam Writer profile picture" })).toHaveStyle({
+      backgroundImage: "url(https://pds.example/avatar.jpg)",
+    });
+
+    const newButton = screen.getByRole("button", { name: "New" });
+    await waitFor(() => expect(newButton).toBeEnabled());
+    fireEvent.click(newButton);
+    expect(await screen.findByRole("img", { name: "Field Notes icon" })).toHaveAttribute(
+      "src",
+      "https://pds.example/field-notes.png",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Publications" }));
+    expect(await screen.findByText("2 publications are available to AnyPub.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Field Notes" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Workbench" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /View site/ })).toHaveLength(2);
+  });
+
   it("shows a discoverable empty state and disables draft creation", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
