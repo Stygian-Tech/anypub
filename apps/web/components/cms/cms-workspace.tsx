@@ -157,10 +157,9 @@ export function CmsWorkspace() {
     return visibleDrafts.find((draft) => draft.id === selectedDraftID) ?? visibleDrafts[0];
   }, [selectedDraftID, visibleDrafts]);
 
-  const selectedPublication = React.useMemo(
-    () => publications.find((publication) => publication.uri === activeDraft?.publicationURI) ?? accountPublications[0],
-    [accountPublications, activeDraft?.publicationURI, publications],
-  );
+  const selectedPublication = activeDraft
+    ? publications.find((publication) => publication.uri === activeDraft.publicationURI)
+    : accountPublications[0];
 
   const validation = React.useMemo(() => {
     if (!activeDraft) {
@@ -461,8 +460,12 @@ export function CmsWorkspace() {
               />
             ) : (
               <Empty className="m-4">
-                <EmptyTitle>No draft selected</EmptyTitle>
-                <EmptyDescription>Create a draft to start writing.</EmptyDescription>
+                <EmptyTitle>{accountPublications.length === 0 ? "No publications found" : "No draft selected"}</EmptyTitle>
+                <EmptyDescription>
+                  {accountPublications.length === 0
+                    ? "Refresh publication discovery after creating a site.standard publication."
+                    : "Create a draft to start writing."}
+                </EmptyDescription>
               </Empty>
             )}
             <ColumnResizeHandle

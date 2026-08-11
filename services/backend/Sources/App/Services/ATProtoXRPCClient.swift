@@ -14,55 +14,6 @@ struct ListRecordsResponse<Value: Codable & Sendable>: Codable, Sendable {
     let cursor: String?
 }
 
-struct PublicationRecordValue: Codable, Sendable {
-    let type: String?
-    let url: String
-    let name: String
-    let description: String?
-    let theme: PublicationThemeReference?
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case url
-        case name
-        case description
-        case theme
-    }
-}
-
-struct PublicationThemeReference: Codable, Sendable {
-    let type: String?
-    let uri: String?
-    let name: String?
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case uri
-        case name
-    }
-
-    init(type: String?, uri: String?, name: String?) {
-        self.type = type
-        self.uri = uri
-        self.name = name
-    }
-
-    init(from decoder: Decoder) throws {
-        if let container = try? decoder.singleValueContainer(),
-           let uri = try? container.decode(String.self) {
-            type = nil
-            self.uri = uri
-            name = nil
-            return
-        }
-
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        type = try container.decodeIfPresent(String.self, forKey: .type)
-        uri = try container.decodeIfPresent(String.self, forKey: .uri)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-    }
-}
-
 struct CreateRecordResponse: Content, Sendable {
     let uri: String
     let cid: String
@@ -92,29 +43,26 @@ struct DeleteRecordInput: Content, Sendable {
 }
 
 struct ATProtoXRPCClient: Sendable {
-    func listPublications(account: LinkedAccount, tokenEncryption: TokenEncryption, database: Database, client: Client) async throws -> [RepositoryRecord<PublicationRecordValue>] {
-        var all: [RepositoryRecord<PublicationRecordValue>] = []
-        var cursor: String?
-
-        repeat {
-            var query = [
-                "repo": account.did,
-                "collection": "site.standard.publication",
-                "limit": "100",
-            ]
-            if let cursor { query["cursor"] = cursor }
-            let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.listRecords", query: query)
-            let response = try await send(
-                method: .GET, url: uri, account: account,
-                tokenEncryption: tokenEncryption, database: database, client: client
-            )
-            try requireSuccess(response, operation: "publication listing")
-            let page = try response.content.decode(ListRecordsResponse<PublicationRecordValue>.self)
-            all.append(contentsOf: page.records)
-            cursor = page.cursor
-        } while cursor != nil
-
-        return all
+    func listPublicationRecordsPage(
+        account: LinkedAccount,
+        cursor: String?,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        client: Client
+    ) async throws -> ListRecordsResponse<JSONValue> {
+        var query = [
+            "repo": account.did,
+            "collection": "site.standard.publication",
+            "limit": "100",
+        ]
+        if let cursor { query["cursor"] = cursor }
+        let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.listRecords", query: query)
+        let response = try await send(
+            method: .GET, url: uri, account: account,
+            tokenEncryption: tokenEncryption, database: database, client: client
+        )
+        try requireSuccess(response, operation: "publication listing")
+        return try response.content.decode(ListRecordsResponse<JSONValue>.self)
     }
 
     func createDocument(

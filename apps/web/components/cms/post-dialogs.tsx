@@ -27,7 +27,12 @@ export function NewDraftDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={publications.length === 0}
+          title={publications.length === 0 ? "No publications found" : undefined}
+        >
           <PlusIcon data-icon="inline-start" />
           New
         </Button>

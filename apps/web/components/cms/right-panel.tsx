@@ -68,13 +68,21 @@ export function RightPanel({
                     Publication
                     {selectedPublication?.host ? (
                       <Badge variant="secondary">{selectedPublication.host}</Badge>
+                    ) : !selectedPublication ? (
+                      <Badge variant="destructive">Unavailable</Badge>
                     ) : null}
                   </CardTitle>
-                  <CardDescription>{selectedPublication?.themeType ?? selectedPublication?.url}</CardDescription>
+                  <CardDescription>
+                    {selectedPublication?.themeType
+                      ?? selectedPublication?.url
+                      ?? "This publication is no longer available in the discovered account records."}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-1 text-sm">
-                  <span className="truncate">{selectedPublication?.name ?? "No publication selected"}</span>
-                  <span className="text-muted-foreground truncate text-xs">{selectedPublication?.url}</span>
+                  <span className="truncate">{selectedPublication?.name ?? "Publication unavailable"}</span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    {selectedPublication?.url ?? draft.publicationURI}
+                  </span>
                 </CardContent>
               </Card>
               <Field>
@@ -175,4 +183,3 @@ export function RightPanel({
     </aside>
   );
 }
-

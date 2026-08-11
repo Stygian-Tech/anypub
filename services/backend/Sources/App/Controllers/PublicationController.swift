@@ -21,50 +21,9 @@ struct PublicationController: RouteCollection {
         guard let account = try await LinkedAccount.query(on: req.db).filter(\.$did, .equal, input.accountDID).first() else {
             throw Abort(.notFound, reason: "Linked account not found")
         }
-        let records = try await ATProtoXRPCClient().listPublications(
-            account: account,
-            tokenEncryption: req.application.tokenEncryption,
-            database: req.db,
-            client: req.client
-        )
-
-        for record in records {
-            let host = PublicationHostDetector.detect(
-                themeType: record.value.theme?.type,
-                themeURI: record.value.theme?.uri,
-                themeName: record.value.theme?.name,
-                publicationURL: record.value.url
-            )
-
-            if let existing = try await PublicationCache.query(on: req.db)
-                .filter(\.$accountDID, .equal, account.did)
-                .filter(\.$uri, .equal, record.uri)
-                .first() {
-                existing.cid = record.cid
-                existing.name = record.value.name
-                existing.url = record.value.url
-                existing.publicationDescription = record.value.description
-                existing.themeType = record.value.theme?.type
-                existing.themeName = record.value.theme?.name
-                existing.host = host?.rawValue
-                existing.syncedAt = Date()
-                try await existing.save(on: req.db)
-            } else {
-                try await PublicationCache(
-                    accountDID: account.did,
-                    uri: record.uri,
-                    cid: record.cid,
-                    name: record.value.name,
-                    url: record.value.url,
-                    publicationDescription: record.value.description,
-                    themeType: record.value.theme?.type,
-                    themeName: record.value.theme?.name,
-                    host: host
-                ).save(on: req.db)
-            }
-        }
-
-        return try await list(req: req)
+        return try await req.application.publicationDiscovery
+            .sync(account: account, req: req)
+            .map(PublicationResponse.init(publication:))
     }
 }
 
