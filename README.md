@@ -55,8 +55,10 @@ The shared development stack runs in Railway's `development` environment:
 The web service uses the root [`railway.json`](./railway.json) and
 [`Dockerfile.web`](./Dockerfile.web). The API service uses
 [`services/backend/railway.json`](./services/backend/railway.json) and
-[`services/backend/Dockerfile`](./services/backend/Dockerfile); deploy the API
-from `services/backend` so those paths are its build context.
+[`services/backend/Dockerfile`](./services/backend/Dockerfile). Its Railway
+root directory is `/services/backend`; run manual deployments from the
+repository root so the config's repository-absolute Dockerfile path resolves
+the same way as GitHub deployments.
 
 Required Railway variables are documented in [`.env.example`](./.env.example).
 Set `APP_ENV=dev` on the development Web service to show the environment banner;
