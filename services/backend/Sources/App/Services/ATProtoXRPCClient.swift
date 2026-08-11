@@ -46,8 +46,6 @@ struct ATProtoXRPCClient: Sendable {
     func listPublicationRecordsPage(
         account: LinkedAccount,
         cursor: String?,
-        tokenEncryption: TokenEncryption,
-        database: Database,
         client: Client
     ) async throws -> ListRecordsResponse<JSONValue> {
         var query = [
@@ -57,10 +55,7 @@ struct ATProtoXRPCClient: Sendable {
         ]
         if let cursor { query["cursor"] = cursor }
         let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.listRecords", query: query)
-        let response = try await send(
-            method: .GET, url: uri, account: account,
-            tokenEncryption: tokenEncryption, database: database, client: client
-        )
+        let response = try await client.get(URI(string: uri)).get()
         try requireSuccess(response, operation: "publication listing")
         return try response.content.decode(ListRecordsResponse<JSONValue>.self)
     }

@@ -7,6 +7,41 @@ import VaporTesting
 
 @Suite("Publication discovery")
 struct PublicationDiscoveryTests {
+    @Test("Publication listing uses the public PDS endpoint without DPoP")
+    func publicPublicationListing() async throws {
+        try await withApp(configure: configure) { app in
+            let did = "did:plc:public-listing"
+            let record = try publicationRecord(
+                did: did,
+                rkey: "publication",
+                name: "Public publication",
+                url: "https://publication.example"
+            )
+            let payload = try JSONEncoder().encode(ListRecordsResponse(records: [record], cursor: "next"))
+            let client = PublicPublicationClient(
+                eventLoop: app.eventLoopGroup.next(),
+                responseBody: payload
+            )
+            let account = LinkedAccount(
+                did: did,
+                handle: "writer.example",
+                pdsURL: "https://pds.example",
+                scope: "atproto",
+                accessToken: "not-needed",
+                refreshToken: "not-needed"
+            )
+
+            let response = try await ATProtoXRPCClient().listPublicationRecordsPage(
+                account: account,
+                cursor: "before",
+                client: client
+            )
+
+            #expect(response.records.map(\.uri) == [record.uri])
+            #expect(response.cursor == "next")
+        }
+    }
+
     @Test("Publication records decode current, legacy, generic, and extra-field shapes")
     func tolerantRecordDecoding() throws {
         let did = "did:plc:writer"
@@ -279,8 +314,6 @@ private struct StubPublicationRecordLister: PublicationRecordListing {
     func listPublicationRecordsPage(
         account: LinkedAccount,
         cursor: String?,
-        tokenEncryption: TokenEncryption,
-        database: Database,
         client: Client
     ) async throws -> ListRecordsResponse<JSONValue> {
         if let failingCursor, cursor == failingCursor {
@@ -292,6 +325,34 @@ private struct StubPublicationRecordLister: PublicationRecordListing {
         return page
     }
 }
+
+private struct PublicPublicationClient: Client {
+    let eventLoop: any EventLoop
+    let responseBody: Data
+
+    func delegating(to eventLoop: any EventLoop) -> any Client {
+        PublicPublicationClient(eventLoop: eventLoop, responseBody: responseBody)
+    }
+
+    func send(_ request: ClientRequest) -> EventLoopFuture<ClientResponse> {
+        guard request.method == .GET,
+              request.headers.first(name: .authorization) == nil,
+              request.headers.first(name: "DPoP") == nil
+        else {
+            return eventLoop.makeFailedFuture(UnexpectedAuthenticatedPublicationRequest())
+        }
+
+        var body = byteBufferAllocator.buffer(capacity: responseBody.count)
+        body.writeBytes(responseBody)
+        return eventLoop.makeSucceededFuture(ClientResponse(
+            status: .ok,
+            headers: ["content-type": "application/json"],
+            body: body
+        ))
+    }
+}
+
+private struct UnexpectedAuthenticatedPublicationRequest: Error {}
 
 private struct FixedPublicationDiscovery: PublicationDiscovering {
     let accountDID: String

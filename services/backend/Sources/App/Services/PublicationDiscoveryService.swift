@@ -6,8 +6,6 @@ protocol PublicationRecordListing: Sendable {
     func listPublicationRecordsPage(
         account: LinkedAccount,
         cursor: String?,
-        tokenEncryption: TokenEncryption,
-        database: Database,
         client: Client
     ) async throws -> ListRecordsResponse<JSONValue>
 }
@@ -44,8 +42,6 @@ struct PublicationDiscoveryService: PublicationDiscovering, Sendable {
             let page = try await records.listPublicationRecordsPage(
                 account: account,
                 cursor: cursor,
-                tokenEncryption: req.application.tokenEncryption,
-                database: req.db,
                 client: req.client
             )
 
