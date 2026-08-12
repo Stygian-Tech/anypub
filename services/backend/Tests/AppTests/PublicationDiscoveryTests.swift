@@ -66,6 +66,25 @@ struct PublicationDiscoveryTests {
         }
     }
 
+    @Test("pckt publication verification uses the public PDS endpoint without DPoP")
+    func publicPcktPublicationVerification() async throws {
+        try await withApp(configure: configure) { app in
+            let client = PublicPublicationClient(
+                eventLoop: app.eventLoopGroup.next(),
+                responseBody: Data()
+            )
+
+            let exists = try await ATProtoXRPCClient().recordExists(
+                account: linkedAccount(did: "did:plc:pckt-public"),
+                collection: "blog.pckt.publication",
+                rkey: "publication",
+                client: client
+            )
+
+            #expect(exists)
+        }
+    }
+
     @Test("Publication records decode current, legacy, generic, and extra-field shapes")
     func tolerantRecordDecoding() throws {
         let did = "did:plc:writer"

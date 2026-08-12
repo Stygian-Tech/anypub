@@ -189,8 +189,6 @@ struct ATProtoXRPCClient: Sendable {
 
     func recordExists(
         account: LinkedAccount,
-        tokenEncryption: TokenEncryption,
-        database: Database,
         collection: String,
         rkey: String,
         client: Client
@@ -200,10 +198,7 @@ struct ATProtoXRPCClient: Sendable {
             method: "com.atproto.repo.getRecord",
             query: ["repo": account.did, "collection": collection, "rkey": rkey]
         )
-        let response = try await send(
-            method: .GET, url: uri, account: account,
-            tokenEncryption: tokenEncryption, database: database, client: client
-        )
+        let response = try await client.get(URI(string: uri)).get()
         if response.status == .notFound { return false }
         guard (200..<300).contains(response.status.code) else {
             throw Abort(.badGateway, reason: "PDS rejected record lookup")
@@ -340,7 +335,7 @@ struct ATProtoXRPCClient: Sendable {
         let dpopKey = try DPoPKey(json: tokenEncryption.open(encryptedKey))
         var accessToken = try tokenEncryption.open(account.accessToken)
         var refreshed = false
-        let nonceKey = "\(account.did)|\(URLComponents(string: url)?.host ?? account.pdsURL)"
+        let nonceKey = dpopNonceKey(accountDID: account.did, serverURL: url)
 
         for _ in 0..<4 {
             let nonce = await dpopNonces.nonce(for: nonceKey)
@@ -434,7 +429,7 @@ struct ATProtoXRPCClient: Sendable {
                 request.body = buffer
             }.get()
             if (200..<300).contains(response.status.code) {
-                guard response.headers.first(name: "DPoP-Nonce") != nil else {
+                guard let responseNonce = response.headers.first(name: "DPoP-Nonce") else {
                     throw Abort(.badGateway, reason: "Authorization server omitted its required DPoP nonce")
                 }
                 let token = try response.content.decode(OAuthTokenResponse.self)
@@ -447,6 +442,12 @@ struct ATProtoXRPCClient: Sendable {
                 account.scope = token.scope
                 account.updatedAt = Date()
                 try await account.save(on: database)
+                if sameDPoPServer(account.tokenEndpoint, account.pdsURL) {
+                    await dpopNonces.set(
+                        responseNonce,
+                        for: dpopNonceKey(accountDID: account.did, serverURL: account.pdsURL)
+                    )
+                }
                 return token.accessToken
             }
             if attempt == 0, let nextNonce = response.headers.first(name: "DPoP-Nonce") {
@@ -476,13 +477,35 @@ struct ATProtoXRPCClient: Sendable {
     }
 }
 
-private let dpopNonces = DPoPNonceStore()
+let dpopNonces = DPoPNonceStore()
 private let tokenRefreshCoordinator = TokenRefreshCoordinator()
 
-private actor DPoPNonceStore {
+actor DPoPNonceStore {
     private var values: [String: String] = [:]
     func nonce(for key: String) -> String? { values[key] }
     func set(_ nonce: String, for key: String) { values[key] = nonce }
+    func remove(for key: String) { values[key] = nil }
+}
+
+func dpopNonceKey(accountDID: String, serverURL: String) -> String {
+    "\(accountDID)|\(dpopServerOrigin(serverURL) ?? serverURL)"
+}
+
+func sameDPoPServer(_ lhs: String?, _ rhs: String?) -> Bool {
+    guard let lhs, let rhs,
+          let lhsOrigin = dpopServerOrigin(lhs),
+          let rhsOrigin = dpopServerOrigin(rhs)
+    else { return false }
+    return lhsOrigin == rhsOrigin
+}
+
+private func dpopServerOrigin(_ value: String) -> String? {
+    guard let components = URLComponents(string: value),
+          let scheme = components.scheme?.lowercased(),
+          let host = components.host?.lowercased()
+    else { return nil }
+    let port = components.port.map { ":\($0)" } ?? ""
+    return "\(scheme)://\(host)\(port)"
 }
 
 private actor TokenRefreshCoordinator {

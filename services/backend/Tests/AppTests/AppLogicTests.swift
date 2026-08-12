@@ -205,6 +205,64 @@ struct AppLogicTests {
             return
         }
         #expect(payload.count > 20_000)
+        #expect(largePrepared.offload?.mimeType == "application/json")
+    }
+
+    @Test("pckt content maps Markdown blocks and inline tags to native extensions")
+    func pcktMarkdownMapping() throws {
+        let document = CanonicalDocumentLoader.loadMarkdown("""
+        ## Heading
+
+        > Quoted **bold** text
+
+        - [x] Finished
+        - [ ] Pending
+
+        3. Third
+          - Nested
+
+        ```swift
+        let answer = 42
+        ```
+
+        ---
+
+        **bold** *italic* `code` ~~removed~~ [linked](https://example.com)
+        """)
+        let prepared = try PublicationContentAdapter.prepare(document: document, host: .pckt)
+        let content = try #require(prepared.content.objectValue)
+        let items = try #require(content["items"]?.arrayValue)
+
+        #expect(items.map { $0.objectValue?["$type"] } == [
+            .string("blog.pckt.block.heading"),
+            .string("blog.pckt.block.blockquote"),
+            .string("blog.pckt.block.taskList"),
+            .string("blog.pckt.block.orderedList"),
+            .string("blog.pckt.block.codeBlock"),
+            .string("blog.pckt.block.horizontalRule"),
+            .string("blog.pckt.block.text"),
+        ])
+        #expect(items[0].objectValue?["level"] == .integer(2))
+        #expect(items[2].objectValue?["content"]?.arrayValue?.map { $0.objectValue?["checked"] } == [.bool(true), .bool(false)])
+        #expect(items[3].objectValue?["start"] == .integer(3))
+        let orderedItemContent = items[3].objectValue?["content"]?.arrayValue?.first?.objectValue?["content"]?.arrayValue
+        #expect(orderedItemContent?.last?.objectValue?["$type"] == .string("blog.pckt.block.bulletList"))
+        #expect(items[4].objectValue?["language"] == .string("swift"))
+        #expect(items[4].objectValue?["plaintext"] == .string("let answer = 42"))
+
+        let inline = try #require(items.last?.objectValue)
+        let featureTypes = inline["facets"]?.arrayValue?.compactMap {
+            $0.objectValue?["features"]?.arrayValue?.first?.objectValue?["$type"]?.stringValue
+        }
+        #expect(featureTypes == [
+            "blog.pckt.richtext.facet#bold",
+            "blog.pckt.richtext.facet#italic",
+            "blog.pckt.richtext.facet#code",
+            "blog.pckt.richtext.facet#strikethrough",
+            "blog.pckt.richtext.facet#link",
+        ])
+        let link = inline["facets"]?.arrayValue?.last?.objectValue?["features"]?.arrayValue?.first?.objectValue
+        #expect(link?["uri"] == .string("https://example.com"))
     }
 
     @Test("Facet byte offsets are calculated from UTF-8 plaintext")
@@ -246,6 +304,57 @@ struct AppLogicTests {
         #expect(payload["htu"] as? String == "https://pds.example/xrpc/com.atproto.repo.createRecord")
         #expect(payload["nonce"] as? String == "server-nonce")
         #expect(payload["ath"] != nil)
+    }
+
+    @Test("Authenticated record writes reuse the OAuth nonce for the same PDS origin")
+    func dpopOAuthNonceReuse() async throws {
+        let did = "did:plc:dpop-nonce-reuse"
+        let pdsURL = "https://pds.example"
+        let nonceKey = dpopNonceKey(accountDID: did, serverURL: pdsURL)
+        await dpopNonces.remove(for: nonceKey)
+        await dpopNonces.set("oauth-response-nonce", for: nonceKey)
+
+        try await withApp(configure: configure) { app in
+            let encryption = TokenEncryption(secret: nil)
+            let account = LinkedAccount(
+                did: did,
+                handle: "writer.example",
+                pdsURL: pdsURL,
+                scope: "atproto include:site.standard.authFull",
+                accessToken: try encryption.seal("access-token"),
+                refreshToken: try encryption.seal("refresh-token"),
+                tokenEndpoint: "https://pds.example/oauth/token",
+                dpopKeyJSON: try encryption.seal(DPoPKey().exportJSON())
+            )
+            let client = RecordingDPoPClient(eventLoop: app.eventLoopGroup.next())
+            let record = StandardSiteDocumentRecord(
+                site: "at://\(did)/site.standard.publication/test",
+                title: "Nonce test",
+                publishedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                path: "/nonce-test",
+                tags: nil,
+                coverImage: nil,
+                description: nil,
+                textContent: "Body",
+                content: nil,
+                updatedAt: nil
+            )
+
+            _ = try await ATProtoXRPCClient().createDocument(
+                account: account,
+                tokenEncryption: encryption,
+                database: app.db,
+                record: record,
+                client: client
+            )
+
+            let proof = try #require(client.proofs().first)
+            let parts = proof.split(separator: ".")
+            let payload = try decodeJWTPart(String(parts[1]))
+            #expect(payload["nonce"] as? String == "oauth-response-nonce")
+            #expect(sameDPoPServer("https://PDS.example/oauth/token", "https://pds.example/xrpc/com.atproto.repo.createRecord"))
+        }
+        await dpopNonces.remove(for: nonceKey)
     }
 
     @Test("Calendar event links article URL and AT URI")
@@ -441,6 +550,54 @@ struct AppLogicTests {
             #expect(try await SchedulerRun.query(on: app.db).count() == 1)
         }
     }
+}
+
+private final class RecordingDPoPClient: Client, @unchecked Sendable {
+    let eventLoop: any EventLoop
+    private let lock = NSLock()
+    private var recordedProofs: [String] = []
+
+    init(eventLoop: any EventLoop) {
+        self.eventLoop = eventLoop
+    }
+
+    func delegating(to eventLoop: any EventLoop) -> any Client {
+        self
+    }
+
+    func send(_ request: ClientRequest) -> EventLoopFuture<ClientResponse> {
+        guard request.method == .POST,
+              let proof = request.headers.first(name: "DPoP")
+        else {
+            return eventLoop.makeFailedFuture(RecordingDPoPClientError.invalidRequest)
+        }
+        lock.lock()
+        recordedProofs.append(proof)
+        lock.unlock()
+
+        var body = ByteBuffer()
+        body.writeString("""
+        {"uri":"at://did:plc:dpop-nonce-reuse/site.standard.document/3mtest","cid":"bafytest"}
+        """)
+        return eventLoop.makeSucceededFuture(ClientResponse(
+            status: .ok,
+            headers: [
+                "content-type": "application/json",
+                "DPoP-Nonce": "next-resource-nonce",
+            ],
+            body: body
+        ))
+    }
+
+    func proofs() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedProofs
+    }
+}
+
+private enum RecordingDPoPClientError: Error {
+    case invalidRequest
 }
 
 private func decodeJWTPart(_ value: String) throws -> [String: Any] {

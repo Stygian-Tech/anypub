@@ -97,12 +97,13 @@ struct ATProtoOAuthService: Sendable {
             "code_challenge_method": "S256",
             "login_hint": normalizedHandle,
         ]
-        let par: PARResponse = try await postFormWithDPoP(
+        let parResponse: DPoPResponse<PARResponse> = try await postFormWithDPoP(
             metadata.pushedAuthorizationRequestEndpoint,
             values: parameters,
             dpopKey: dpopKey,
             client: req.client
         )
+        let par = parResponse.value
 
         let targetRedirect = safeRedirect(redirectURL, config: config)
         let stateRecord = OAuthStateRecord(
@@ -149,7 +150,7 @@ struct ATProtoOAuthService: Sendable {
         let verifier = try req.application.tokenEncryption.open(state.codeVerifier)
         let dpopKeyJSON = try req.application.tokenEncryption.open(encryptedKey)
         let dpopKey = try DPoPKey(json: dpopKeyJSON)
-        let token: OAuthTokenResponse = try await postFormWithDPoP(
+        let tokenResponse: DPoPResponse<OAuthTokenResponse> = try await postFormWithDPoP(
             tokenEndpoint,
             values: [
                 "grant_type": "authorization_code",
@@ -161,6 +162,7 @@ struct ATProtoOAuthService: Sendable {
             dpopKey: dpopKey,
             client: req.client
         )
+        let token = tokenResponse.value
         let scopes = Set(token.scope.split(separator: " ").map(String.init))
         guard token.tokenType.caseInsensitiveCompare("DPoP") == .orderedSame,
               scopes.contains("atproto"),
@@ -168,6 +170,12 @@ struct ATProtoOAuthService: Sendable {
               !token.accessToken.isEmpty
         else {
             throw Abort(.badGateway, reason: "Authorization server returned an invalid AT Protocol token")
+        }
+        if sameDPoPServer(tokenEndpoint, pdsURL) {
+            await dpopNonces.set(
+                tokenResponse.nonce,
+                for: dpopNonceKey(accountDID: token.subject, serverURL: pdsURL)
+            )
         }
         return OAuthCompletion(
             did: token.subject,
@@ -243,7 +251,7 @@ struct ATProtoOAuthService: Sendable {
         values: [String: String],
         dpopKey: DPoPKey,
         client: Client
-    ) async throws -> Value {
+    ) async throws -> DPoPResponse<Value> {
         var nonce: String?
         for attempt in 0..<2 {
             let proof = try dpopKey.proof(httpMethod: "POST", url: url, nonce: nonce)
@@ -255,10 +263,13 @@ struct ATProtoOAuthService: Sendable {
                 request.body = buffer
             }.get()
             if (200..<300).contains(response.status.code) {
-                guard response.headers.first(name: "DPoP-Nonce") != nil else {
+                guard let responseNonce = response.headers.first(name: "DPoP-Nonce") else {
                     throw Abort(.badGateway, reason: "OAuth server omitted its required DPoP nonce")
                 }
-                return try response.content.decode(Value.self)
+                return DPoPResponse(
+                    value: try response.content.decode(Value.self),
+                    nonce: responseNonce
+                )
             }
             if attempt == 0, let nextNonce = response.headers.first(name: "DPoP-Nonce") {
                 nonce = nextNonce
@@ -318,6 +329,11 @@ struct ATProtoOAuthService: Sendable {
 
     private func clientID(_ config: AppConfig) -> String { "\(config.publicURL)/oauth/client-metadata.json" }
     private func callbackURL(_ config: AppConfig) -> String { "\(config.publicURL)/api/auth/atproto/callback" }
+}
+
+private struct DPoPResponse<Value> {
+    let value: Value
+    let nonce: String
 }
 
 private struct ResolvedIdentity { let did: String; let pdsURL: String }

@@ -214,21 +214,18 @@ struct PublisherService: Sendable {
     ) async throws -> JSONValue {
         guard let offload = prepared.offload else { return prepared.content }
         let data: Data
-        let mimeType: String
         switch offload {
         case .leafletPages(let payload):
             data = payload
-            mimeType = "application/json"
         case .pcktItems(let payload):
             data = payload
-            mimeType = "text/plain"
         }
         let blob = try await xrpc.uploadBlob(
             account: account,
             tokenEncryption: req.application.tokenEncryption,
             database: req.db,
             data: data,
-            mimeType: mimeType,
+            mimeType: offload.mimeType,
             client: req.client
         )
         return prepared.replacingOffload(with: blob)
@@ -242,8 +239,6 @@ struct PublisherService: Sendable {
         let publication = try ATRecordReference(uri: draft.publicationURI)
         let exists = try await xrpc.recordExists(
             account: account,
-            tokenEncryption: req.application.tokenEncryption,
-            database: req.db,
             collection: "blog.pckt.publication",
             rkey: publication.rkey,
             client: req.client

@@ -4,6 +4,12 @@ import Vapor
 enum PublicationContentOffload: Equatable, Sendable {
     case leafletPages(Data)
     case pcktItems(Data)
+
+    var mimeType: String {
+        switch self {
+        case .leafletPages, .pcktItems: "application/json"
+        }
+    }
 }
 
 struct PreparedPublicationContent: Equatable, Sendable {
