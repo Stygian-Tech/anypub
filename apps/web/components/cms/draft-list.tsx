@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BookOpenIcon, CalendarClockIcon, PencilIcon, SearchIcon, Trash2Icon, Undo2Icon } from "lucide-react";
+import { BookOpenIcon, CalendarClockIcon, CloudOffIcon, PencilIcon, SearchIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -56,6 +56,7 @@ export function DraftList({
   onEditSchedule,
   onDelete,
   onRevert,
+  onUnpublish,
 }: {
   drafts: Draft[];
   publications: Publication[];
@@ -78,6 +79,7 @@ export function DraftList({
   onEditSchedule: (draft: Draft) => void;
   onDelete: (draft: Draft) => void;
   onRevert: (draft: Draft) => void;
+  onUnpublish: (draft: Draft) => void;
 }) {
   const publicationByURI = new Map(publications.map((publication) => [publication.uri, publication]));
   const publicationGroups = publications
@@ -138,6 +140,7 @@ export function DraftList({
                 onEditSchedule={onEditSchedule}
                 onDelete={onDelete}
                 onRevert={onRevert}
+                onUnpublish={onUnpublish}
               />
             ))
           ) : (
@@ -160,6 +163,7 @@ export function DraftList({
                       onEditSchedule={onEditSchedule}
                       onDelete={onDelete}
                       onRevert={onRevert}
+                      onUnpublish={onUnpublish}
                     />
                   ))}
                 </section>
@@ -195,6 +199,7 @@ function DraftListItem({
   onEditSchedule,
   onDelete,
   onRevert,
+  onUnpublish,
 }: {
   draft: Draft;
   publication?: Publication;
@@ -204,6 +209,7 @@ function DraftListItem({
   onEditSchedule: (draft: Draft) => void;
   onDelete: (draft: Draft) => void;
   onRevert: (draft: Draft) => void;
+  onUnpublish: (draft: Draft) => void;
 }) {
   return (
     <ContextMenu>
@@ -252,11 +258,11 @@ function DraftListItem({
           <>
             <ContextMenuItem onSelect={() => onSelect(draft.id)}>
               <PencilIcon />
-              Edit
+              Edit published post
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onRevert(draft)}>
-              <Undo2Icon />
-              Revert to draft
+            <ContextMenuItem variant="destructive" onSelect={() => onUnpublish(draft)}>
+              <CloudOffIcon />
+              Unpublish
             </ContextMenuItem>
           </>
         ) : null}

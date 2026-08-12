@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { publishDraft, syncPublications } from "@/lib/draft-api";
+import { publishDraft, syncPublications, unpublishDraft } from "@/lib/draft-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -39,6 +39,23 @@ describe("publishing API", () => {
         method: "POST",
         body: JSON.stringify({ accountDID: "did:plc:writer" }),
       }),
+    );
+  });
+
+  it("unpublishes a remote article while retaining its local draft", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "draft-id",
+      status: "draft",
+      title: "Editable article",
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await unpublishDraft("draft-id");
+
+    expect(result.status).toBe("draft");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8080/api/drafts/draft-id/unpublish",
+      expect.objectContaining({ method: "POST", credentials: "include" }),
     );
   });
 });

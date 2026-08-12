@@ -523,6 +523,92 @@ struct AppLogicTests {
         }
     }
 
+    @Test("Published posts remain editable and unpublish all linked records")
+    func editAndUnpublishPublishedPost() async throws {
+        try await withApp(configure: configure) { app in
+            let did = "did:plc:unpublish"
+            let encryption = TokenEncryption(secret: nil)
+            let client = RecordingDeletionClient(eventLoop: app.eventLoopGroup.next())
+            app.clients.use { _ in client }
+
+            let account = LinkedAccount(
+                did: did,
+                handle: "unpublish.example",
+                pdsURL: "https://pds.example",
+                scope: "atproto include:site.standard.authFull include:blog.pckt.authFull include:community.lexicon.calendar.authFull",
+                accessToken: try encryption.seal("access-token"),
+                refreshToken: try encryption.seal("refresh-token"),
+                tokenEndpoint: "https://pds.example/oauth/token",
+                dpopKeyJSON: try encryption.seal(DPoPKey().exportJSON())
+            )
+            try await account.save(on: app.db)
+
+            let draft = try Draft(
+                accountDID: did,
+                publicationURI: "at://\(did)/site.standard.publication/publication",
+                publicationURL: "https://example.pckt.blog",
+                title: "Published article",
+                path: "/published-article",
+                excerpt: "Published summary",
+                tags: [],
+                markdown: "Published body",
+                status: .published,
+                publishedAt: Date(timeIntervalSince1970: 1_800_000_000)
+            )
+            draft.documentURI = "at://\(did)/site.standard.document/document"
+            draft.documentCID = "bafydocument"
+            draft.platformDocumentURI = "at://\(did)/blog.pckt.document/document"
+            draft.platformDocumentCID = "bafywrapper"
+            try await draft.save(on: app.db)
+            let draftID = try #require(draft.id)
+            try await CalendarEventLink(
+                draftID: draftID,
+                eventURI: "at://\(did)/community.lexicon.calendar.event/event",
+                eventCID: "bafyevent"
+            ).save(on: app.db)
+
+            let edit = UpsertDraftRequest(
+                accountDID: did,
+                publicationURI: draft.publicationURI,
+                publicationURL: draft.publicationURL,
+                title: "Edited published article",
+                path: draft.path,
+                excerpt: draft.excerpt,
+                tags: [],
+                markdown: "Edited published body",
+                coverAssetID: nil
+            )
+            try await app.testing().test(.PUT, "/api/drafts/\(draftID)") { request in
+                try request.content.encode(edit)
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+            }
+            let edited = try #require(await Draft.find(draftID, on: app.db))
+            #expect(edited.typedStatus == .published)
+            #expect(edited.documentURI == draft.documentURI)
+            #expect(edited.title == "Edited published article")
+
+            try await app.testing().test(.POST, "/api/drafts/\(draftID)/unpublish") { response in
+                #expect(response.status == .ok)
+            }
+
+            let unpublished = try #require(await Draft.find(draftID, on: app.db))
+            #expect(unpublished.typedStatus == .draft)
+            #expect(unpublished.title == "Edited published article")
+            #expect(unpublished.documentURI == nil)
+            #expect(unpublished.documentCID == nil)
+            #expect(unpublished.platformDocumentURI == nil)
+            #expect(unpublished.platformDocumentCID == nil)
+            #expect(unpublished.publishedAt == nil)
+            #expect(try await CalendarEventLink.query(on: app.db).filter(\.$draftID, .equal, draftID).count() == 0)
+            #expect(client.deletedCollections() == [
+                "community.lexicon.calendar.event",
+                "blog.pckt.document",
+                "site.standard.document",
+            ])
+        }
+    }
+
     @Test("App config separates API and web origins")
     func appConfigSeparatesAPIAndWebOrigins() {
         let config = AppConfig.load(environment: [
@@ -635,6 +721,46 @@ private final class RecordingDPoPClient: Client, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recordedProofs
+    }
+}
+
+private final class RecordingDeletionClient: Client, @unchecked Sendable {
+    let eventLoop: any EventLoop
+    private let lock = NSLock()
+    private var collections: [String] = []
+
+    init(eventLoop: any EventLoop) {
+        self.eventLoop = eventLoop
+    }
+
+    func delegating(to eventLoop: any EventLoop) -> any Client {
+        self
+    }
+
+    func send(_ request: ClientRequest) -> EventLoopFuture<ClientResponse> {
+        guard request.method == .POST,
+              request.url.string.contains("com.atproto.repo.deleteRecord"),
+              let body = request.body,
+              let json = body.getString(at: body.readerIndex, length: body.readableBytes),
+              let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let collection = object["collection"] as? String
+        else {
+            return eventLoop.makeFailedFuture(RecordingDPoPClientError.invalidRequest)
+        }
+        lock.lock()
+        collections.append(collection)
+        lock.unlock()
+        return eventLoop.makeSucceededFuture(ClientResponse(
+            status: .ok,
+            headers: ["DPoP-Nonce": "deletion-nonce"]
+        ))
+    }
+
+    func deletedCollections() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return collections
     }
 }
 

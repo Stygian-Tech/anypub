@@ -49,7 +49,7 @@ export function EditorPanel({
         </div>
         <Button size="sm" onClick={onSave} disabled={isSaving}>
           <SaveIcon data-icon="inline-start" />
-          {isSaving ? "Saving" : "Save"}
+          {isSaving ? "Saving" : draft.status === "published" ? "Save changes" : "Save"}
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">

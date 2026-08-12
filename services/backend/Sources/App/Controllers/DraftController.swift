@@ -10,6 +10,7 @@ struct DraftController: RouteCollection {
         drafts.patch(":id", "publication", use: changePublication)
         drafts.post(":id", "schedule", use: schedule)
         drafts.post(":id", "publish", use: publish)
+        drafts.post(":id", "unpublish", use: unpublish)
         drafts.post(":id", "revert", use: revertToDraft)
         drafts.delete(":id", use: delete)
     }
@@ -116,14 +117,10 @@ struct DraftController: RouteCollection {
 
     func revertToDraft(req: Request) async throws -> DraftResponse {
         let draft = try await findDraft(req: req)
-        if draft.documentURI != nil {
-            try await PublisherService().deletePublishedDocument(for: draft, req: req)
-            draft.publishedAt = nil
-            draft.documentURI = nil
-            draft.documentCID = nil
-            draft.platformDocumentURI = nil
-            draft.platformDocumentCID = nil
+        guard draft.typedStatus == .scheduled else {
+            throw Abort(.conflict, reason: "Only scheduled posts can be reverted to draft")
         }
+        try await PublisherService().deleteCalendarEvent(for: draft, req: req)
         draft.scheduledAt = nil
         draft.typedStatus = .draft
         draft.updatedAt = Date()
@@ -131,10 +128,21 @@ struct DraftController: RouteCollection {
         return DraftResponse(draft: draft)
     }
 
+    func unpublish(req: Request) async throws -> DraftResponse {
+        let draft = try await findDraft(req: req)
+        guard draft.typedStatus == .published, draft.documentURI != nil else {
+            throw Abort(.conflict, reason: "Only published posts can be unpublished")
+        }
+        try await PublisherService().unpublish(draft: draft, req: req)
+        return DraftResponse(draft: draft)
+    }
+
     func delete(req: Request) async throws -> HTTPStatus {
         let draft = try await findDraft(req: req)
         if draft.documentURI != nil {
-            try await PublisherService().deletePublishedDocument(for: draft, req: req)
+            try await PublisherService().unpublish(draft: draft, req: req)
+        } else {
+            try await PublisherService().deleteCalendarEvent(for: draft, req: req)
         }
         try await draft.delete(on: req.db)
         return .noContent

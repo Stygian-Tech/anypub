@@ -159,21 +159,24 @@ export function ConfirmPostActionDialog({
   onConfirm,
 }: {
   draft: Draft | null;
-  action: "delete" | "revert";
+  action: "delete" | "revert" | "unpublish";
   busy: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => Promise<void>;
 }) {
   const published = draft?.status === "published";
   const deleting = action === "delete";
+  const unpublishing = action === "unpublish";
 
   return (
     <Dialog open={Boolean(draft)} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{deleting ? "Delete post?" : "Revert to draft?"}</DialogTitle>
+          <DialogTitle>{deleting ? "Delete post?" : unpublishing ? "Unpublish article?" : "Revert to draft?"}</DialogTitle>
           <DialogDescription>
-            {published
+            {unpublishing
+              ? "This removes the remote article, platform wrapper, and linked calendar event while keeping the content as a local draft."
+              : published
               ? "This will delete the remote standard.site record and clear its publication linkage."
               : deleting
                 ? "This removes the post from local draft storage."
@@ -182,8 +185,8 @@ export function ConfirmPostActionDialog({
         </DialogHeader>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant={deleting ? "destructive" : "default"} onClick={onConfirm} disabled={busy}>
-            {busy ? "Working" : deleting ? "Delete" : "Revert"}
+          <Button variant={deleting || unpublishing ? "destructive" : "default"} onClick={onConfirm} disabled={busy}>
+            {busy ? "Working" : deleting ? "Delete" : unpublishing ? "Unpublish" : "Revert"}
           </Button>
         </div>
       </DialogContent>

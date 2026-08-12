@@ -181,7 +181,7 @@ struct PublisherService: Sendable {
         return response
     }
 
-    func deletePublishedDocument(for draft: Draft, req: Request) async throws {
+    func unpublish(draft: Draft, req: Request) async throws {
         guard let documentURI = draft.documentURI else { return }
         let reference = try ATRecordReference(uri: documentURI)
         guard reference.collection == "site.standard.document" else {
@@ -194,6 +194,8 @@ struct PublisherService: Sendable {
             throw Abort(.notFound, reason: "Linked account not found")
         }
 
+        try await deleteCalendarEvent(for: draft, account: account, req: req)
+
         if let platformDocumentURI = draft.platformDocumentURI {
             try await xrpc.deleteRecord(
                 account: account,
@@ -202,6 +204,10 @@ struct PublisherService: Sendable {
                 recordURI: platformDocumentURI,
                 client: req.client
             )
+            draft.platformDocumentURI = nil
+            draft.platformDocumentCID = nil
+            draft.updatedAt = Date()
+            try await draft.save(on: req.db)
         }
         try await xrpc.deleteRecord(
             account: account,
@@ -210,6 +216,41 @@ struct PublisherService: Sendable {
             recordURI: documentURI,
             client: req.client
         )
+        draft.documentURI = nil
+        draft.documentCID = nil
+        draft.publishedAt = nil
+        draft.scheduledAt = nil
+        draft.typedStatus = .draft
+        draft.updatedAt = Date()
+        try await draft.save(on: req.db)
+    }
+
+    func deleteCalendarEvent(for draft: Draft, req: Request) async throws {
+        guard let account = try await LinkedAccount.query(on: req.db)
+            .filter(\.$did, .equal, draft.accountDID)
+            .first()
+        else {
+            guard let draftID = draft.id else { return }
+            if try await CalendarEventLink.query(on: req.db).filter(\.$draftID, .equal, draftID).first() == nil {
+                return
+            }
+            throw Abort(.notFound, reason: "Linked account not found")
+        }
+        try await deleteCalendarEvent(for: draft, account: account, req: req)
+    }
+
+    private func deleteCalendarEvent(for draft: Draft, account: LinkedAccount, req: Request) async throws {
+        guard let draftID = draft.id,
+              let link = try await CalendarEventLink.query(on: req.db).filter(\.$draftID, .equal, draftID).first()
+        else { return }
+        try await xrpc.deleteRecord(
+            account: account,
+            tokenEncryption: req.application.tokenEncryption,
+            database: req.db,
+            recordURI: link.eventURI,
+            client: req.client
+        )
+        try await link.delete(on: req.db)
     }
 
     private func preparedContent(

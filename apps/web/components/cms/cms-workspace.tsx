@@ -50,6 +50,7 @@ export function CmsWorkspace() {
   const [scheduleDateTime, setScheduleDateTime] = React.useState("");
   const [deleteDraftToConfirm, setDeleteDraftToConfirm] = React.useState<Draft | null>(null);
   const [revertDraftToConfirm, setRevertDraftToConfirm] = React.useState<Draft | null>(null);
+  const [unpublishDraftToConfirm, setUnpublishDraftToConfirm] = React.useState<Draft | null>(null);
   const [isMutatingDraft, setIsMutatingDraft] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [draftListTab, setDraftListTab] = React.useState<DraftListTab>("drafts");
@@ -324,6 +325,25 @@ export function CmsWorkspace() {
     }
   }
 
+  async function unpublishDraft() {
+    if (!unpublishDraftToConfirm) {
+      return;
+    }
+    setIsMutatingDraft(true);
+    try {
+      const persisted = await draftAPI.unpublishDraft(unpublishDraftToConfirm.id);
+      replaceDraft(persisted);
+      setUnpublishDraftToConfirm(null);
+      setDraftListTab("drafts");
+      setSelectedDraftID(persisted.id);
+      toast.success("Article unpublished and returned to drafts");
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not unpublish article"));
+    } finally {
+      setIsMutatingDraft(false);
+    }
+  }
+
   async function scheduleDraft() {
     if (!activeDraft || !scheduledDate || isMutatingDraft) {
       return;
@@ -349,6 +369,7 @@ export function CmsWorkspace() {
       return;
     }
     setIsPublishing(true);
+    const isUpdate = activeDraft.status === "published";
     try {
       await draftAPI.saveDraft(activeDraft);
       await draftAPI.publishDraft(activeDraft.id);
@@ -356,7 +377,7 @@ export function CmsWorkspace() {
       replaceDraft(persisted);
       setDraftListTab("published");
       setSelectedDraftID(persisted.id);
-      toast.success("Article published");
+      toast.success(isUpdate ? "Article updated" : "Article published");
     } catch (error) {
       const persisted = await draftAPI.getDraft(activeDraft.id).catch(() => null);
       if (persisted) {
@@ -434,6 +455,7 @@ export function CmsWorkspace() {
             isSyncing={isSyncing}
             canPublish={Boolean(activeDraft && validation.valid && !isPublishing)}
             isPublishing={isPublishing}
+            isUpdating={activeDraft?.status === "published"}
             isLoggingOut={isLoggingOut}
             onThemeChange={changeThemePreference}
             onSync={syncPublications}
@@ -473,6 +495,7 @@ export function CmsWorkspace() {
               onEditSchedule={beginScheduleEdit}
               onDelete={setDeleteDraftToConfirm}
               onRevert={setRevertDraftToConfirm}
+              onUnpublish={setUnpublishDraftToConfirm}
             />
             <ColumnResizeHandle
               className="hidden xl:flex"
@@ -543,6 +566,13 @@ export function CmsWorkspace() {
           busy={isMutatingDraft}
           onOpenChange={(open) => !open && setRevertDraftToConfirm(null)}
           onConfirm={revertDraftToDraft}
+        />
+        <ConfirmPostActionDialog
+          draft={unpublishDraftToConfirm}
+          action="unpublish"
+          busy={isMutatingDraft}
+          onOpenChange={(open) => !open && setUnpublishDraftToConfirm(null)}
+          onConfirm={unpublishDraft}
         />
         <ConfirmPostActionDialog
           draft={deleteDraftToConfirm}
