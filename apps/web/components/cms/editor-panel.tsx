@@ -57,14 +57,19 @@ export function EditorPanel({
     error: "Autosave failed",
   }[saveState];
 
-  async function uploadBodyImage(file?: File) {
-    if (!file) return;
+  async function uploadBodyImages(files: File[], insertionIndex?: number) {
+    if (files.length === 0) return;
     setUploadingImage(true);
     try {
-      const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
-      const asset = await uploadImage(draft.accountDID, file, alt);
-      editorRef.current?.insertBlock(`![${alt}](anypub-asset://${asset.id})`);
-      toast.success("Image added to article");
+      for (const [offset, file] of files.entries()) {
+        const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+        const asset = await uploadImage(draft.accountDID, file, alt);
+        editorRef.current?.insertBlock(
+          `![${alt}](anypub-asset://${asset.id})`,
+          insertionIndex === undefined ? undefined : insertionIndex + offset,
+        );
+      }
+      toast.success(files.length === 1 ? "Image added to article" : `${files.length} images added to article`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not upload image");
     } finally {
@@ -98,7 +103,7 @@ export function EditorPanel({
             type="file"
             accept="image/*"
             aria-label="Choose an image for the article body"
-            onChange={(event) => void uploadBodyImage(event.target.files?.[0])}
+            onChange={(event) => void uploadBodyImages(Array.from(event.target.files ?? []))}
           />
           <Button variant="outline" size="sm" disabled={uploadingImage} onClick={() => bodyImageInputRef.current?.click()}>
             <ImagePlusIcon data-icon="inline-start" />
@@ -155,6 +160,7 @@ export function EditorPanel({
             document={blockDocumentForDraft(draft)}
             invalid={Boolean(validation.markdown)}
             resolveAssetURL={assetContentURL}
+            onImageFiles={uploadBodyImages}
             onChange={(document) => onChange({
               markdown: document.markdown,
               blockDocumentJSON: JSON.stringify(document),

@@ -33,19 +33,23 @@ import {
 } from "./block-drag";
 
 export type BlockEditorHandle = {
-  insertBlock: (markdown: string) => void;
+  insertBlock: (markdown: string, atIndex?: number) => void;
 };
+
+type ImageFilesHandler = (files: File[], insertionIndex: number) => void | Promise<void>;
 
 export const BlockEditor = React.forwardRef<BlockEditorHandle, {
   document: BlockDocument;
   invalid?: boolean;
   onChange: (document: BlockDocument) => void;
   resolveAssetURL?: (assetID: string) => string;
+  onImageFiles?: ImageFilesHandler;
 }>(function BlockEditor({
   document,
   invalid = false,
   onChange,
   resolveAssetURL,
+  onImageFiles,
 }, ref) {
   return (
     <MarkdownBlockEditor
@@ -53,6 +57,7 @@ export const BlockEditor = React.forwardRef<BlockEditorHandle, {
       value={document.markdown}
       invalid={invalid}
       resolveAssetURL={resolveAssetURL}
+      onImageFiles={onImageFiles}
       onChange={(markdown) => onChange(reviseMarkdownDocument(document, markdown))}
     />
   );
@@ -63,11 +68,13 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
   invalid: boolean;
   onChange: (markdown: string) => void;
   resolveAssetURL?: (assetID: string) => string;
+  onImageFiles?: ImageFilesHandler;
 }>(function MarkdownBlockEditor({
   value,
   invalid,
   onChange,
   resolveAssetURL,
+  onImageFiles,
 }, ref) {
   const [blocks, setBlocks] = React.useState(() => parseMarkdownBlocks(value));
   const [activeBlockIndex, setActiveBlockIndex] = React.useState<number | null>(null);
@@ -75,6 +82,8 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
   const [dragInsertionIndex, setDragInsertionIndex] = React.useState<number | null>(null);
   const [dragTargetListLevel, setDragTargetListLevel] = React.useState(0);
   const [pendingCaret, setPendingCaret] = React.useState<number | null>(null);
+  const [imageDragActive, setImageDragActive] = React.useState(false);
+  const editorRef = React.useRef<HTMLDivElement>(null);
   const dragStateRef = React.useRef<{
     fromIndex: number;
     insertionIndex: number | null;
@@ -130,9 +139,11 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
   }
 
   React.useImperativeHandle(ref, () => ({
-    insertBlock(markdown: string) {
+    insertBlock(markdown: string, atIndex?: number) {
       const compactedBlocks = compactMarkdownBlocks(blocks);
-      const insertAt = activeBlockIndex === null ? compactedBlocks.length : Math.min(activeBlockIndex + 1, compactedBlocks.length);
+      const insertAt = atIndex === undefined
+        ? activeBlockIndex === null ? compactedBlocks.length : Math.min(activeBlockIndex + 1, compactedBlocks.length)
+        : Math.max(0, Math.min(atIndex, compactedBlocks.length));
       const nextBlocks = [...compactedBlocks];
       nextBlocks.splice(insertAt, 0, parseMarkdownBlock(markdown));
       setBlocks(nextBlocks);
@@ -140,6 +151,30 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
       setActiveBlockIndex(null);
     },
   }), [activeBlockIndex, blocks, onChange]);
+
+  function imageFilesFromTransfer(transfer: DataTransfer | null) {
+    return Array.from(transfer?.files ?? []).filter((file) => file.type.startsWith("image/"));
+  }
+
+  function hasImageTransfer(transfer: DataTransfer | null) {
+    return imageFilesFromTransfer(transfer).length > 0 || Array.from(transfer?.items ?? []).some(
+      (item) => item.kind === "file" && item.type.startsWith("image/"),
+    );
+  }
+
+  function imageInsertionIndex(clientY?: number) {
+    const editor = editorRef.current;
+    if (!editor || clientY === undefined) {
+      return activeBlockIndex === null ? blocks.length : Math.min(activeBlockIndex + 1, blocks.length);
+    }
+
+    const rows = Array.from(editor.querySelectorAll<HTMLElement>("[data-block-index]"));
+    const nextRow = rows.find((row) => {
+      const bounds = row.getBoundingClientRect();
+      return clientY < bounds.top + bounds.height / 2;
+    });
+    return nextRow ? Number(nextRow.dataset.blockIndex) : rows.length;
+  }
 
   function updateBlock(index: number, nextValue: string) {
     updateParsedBlock(index, parseMarkdownBlock(nextValue));
@@ -391,7 +426,51 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
   return (
     <Field data-invalid={invalid} className="min-h-0 flex-1">
       <label data-slot="field-label" htmlFor="markdown-block-0" className="text-sm font-medium leading-none sr-only">Markdown</label>
-      <div data-testid="markdown-block-editor" className="flex min-h-[64vh] flex-1 flex-col px-0 py-4">
+      <div
+        ref={editorRef}
+        data-testid="markdown-block-editor"
+        data-image-drag-active={imageDragActive ? "true" : undefined}
+        className={cn(
+          "relative flex min-h-[64vh] flex-1 flex-col px-0 py-4 transition-colors",
+          imageDragActive && "bg-accent/40 ring-primary/40 ring-2 ring-inset",
+        )}
+        onDragEnter={(event) => {
+          if (!onImageFiles || !hasImageTransfer(event.dataTransfer)) return;
+          event.preventDefault();
+          setImageDragActive(true);
+        }}
+        onDragOver={(event) => {
+          if (!onImageFiles || !hasImageTransfer(event.dataTransfer)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setImageDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          setImageDragActive(false);
+        }}
+        onDrop={(event) => {
+          const files = imageFilesFromTransfer(event.dataTransfer);
+          if (!onImageFiles || files.length === 0) return;
+          event.preventDefault();
+          setImageDragActive(false);
+          void onImageFiles(files, imageInsertionIndex(event.clientY));
+        }}
+        onPaste={(event) => {
+          const files = imageFilesFromTransfer(event.clipboardData);
+          if (!onImageFiles || files.length === 0) return;
+          event.preventDefault();
+          void onImageFiles(files, imageInsertionIndex());
+        }}
+      >
+        {imageDragActive ? (
+          <div
+            data-testid="markdown-image-drop-overlay"
+            className="text-primary pointer-events-none absolute inset-x-0 top-3 z-10 mx-auto w-fit rounded-full border bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm"
+          >
+            Drop images to add them
+          </div>
+        ) : null}
         {blocks.map((block, index) => {
           const isActive = index === activeBlockIndex;
           const isListItem = isListMarkdownBlock(block);

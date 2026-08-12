@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { MarkdownBlockEditor } from "@anypub/block-editor";
+import { createRef } from "react";
+import { MarkdownBlockEditor, type BlockEditorHandle } from "@anypub/block-editor";
 
 describe("block editor list interactions", () => {
   it("backs an empty top-level bullet out into a text block", () => {
@@ -59,5 +60,69 @@ describe("block editor list interactions", () => {
     });
 
     expect(onChange).toHaveBeenLastCalledWith("Paste here[https://example.com/article](https://example.com/article)");
+  });
+
+  it("sends pasted images to the body image handler after the active block", () => {
+    const onImageFiles = vi.fn();
+    render(
+      <MarkdownBlockEditor
+        value={"First\n\nSecond"}
+        invalid={false}
+        onChange={() => undefined}
+        onImageFiles={onImageFiles}
+      />,
+    );
+    fireEvent.click(screen.getAllByTestId("markdown-block-preview")[0]!);
+    const file = new File(["image"], "pasted.png", { type: "image/png" });
+
+    fireEvent.paste(screen.getByTestId("markdown-block-textarea"), {
+      clipboardData: { files: [file], getData: () => "" },
+    });
+
+    expect(onImageFiles).toHaveBeenCalledWith([file], 1);
+  });
+
+  it("shows a drop target and sends dropped images to the requested insertion point", () => {
+    const onImageFiles = vi.fn();
+    render(
+      <MarkdownBlockEditor
+        value={"First\n\nSecond"}
+        invalid={false}
+        onChange={() => undefined}
+        onImageFiles={onImageFiles}
+      />,
+    );
+    const editor = screen.getByTestId("markdown-block-editor");
+    const file = new File(["image"], "dropped.webp", { type: "image/webp" });
+    const dataTransfer = { files: [file], dropEffect: "none" };
+
+    fireEvent.dragOver(editor, { dataTransfer });
+    expect(screen.getByTestId("markdown-image-drop-overlay")).toHaveTextContent("Drop images to add them");
+
+    fireEvent.drop(editor, { dataTransfer });
+
+    expect(onImageFiles).toHaveBeenCalledWith([file], 2);
+    expect(screen.queryByTestId("markdown-image-drop-overlay")).not.toBeInTheDocument();
+  });
+
+  it("inserts an uploaded image at an explicit body position so its preview can render", () => {
+    const onChange = vi.fn();
+    const ref = createRef<BlockEditorHandle>();
+    render(
+      <MarkdownBlockEditor
+        ref={ref}
+        value={"First\n\nSecond"}
+        invalid={false}
+        onChange={onChange}
+        resolveAssetURL={(assetID) => `/api/assets/${assetID}/content`}
+      />,
+    );
+
+    act(() => ref.current?.insertBlock("![Preview](anypub-asset://d9428888-122b-11e1-b85c-61cd3cbb3210)", 1));
+    expect(onChange).toHaveBeenLastCalledWith("First\n\n![Preview](anypub-asset://d9428888-122b-11e1-b85c-61cd3cbb3210)\n\nSecond");
+    expect(screen.getByRole("img", { name: "Preview" })).toHaveAttribute(
+      "src",
+      "/api/assets/d9428888-122b-11e1-b85c-61cd3cbb3210/content",
+    );
   });
 });

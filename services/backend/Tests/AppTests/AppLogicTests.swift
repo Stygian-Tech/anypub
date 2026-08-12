@@ -252,14 +252,22 @@ struct AppLogicTests {
             title: "Styled document",
             path: "/styled",
             excerpt: nil,
-            tags: [],
+            tags: ["leaflet", "images"],
             markdown: "# Heading\n\n- Item",
             status: .published,
             publishedAt: Date(timeIntervalSince1970: 1_800_000_000)
         )
         let canonical = CanonicalDocumentLoader.loadMarkdown(draft.markdown)
         let prepared = try PublicationContentAdapter.prepare(document: canonical, host: .leaflet)
-        let record = ProtocolRecordBuilder().documentRecord(draft: draft, cover: nil, content: prepared.content)
+        let cover = ATProtoBlobRef(
+            type: "blob",
+            ref: .init(link: "bafkreileafletcover"),
+            mimeType: "image/jpeg",
+            size: 1_024
+        )
+        let record = ProtocolRecordBuilder().documentRecord(draft: draft, cover: cover, content: prepared.content)
+        #expect(record.tags == ["leaflet", "images"])
+        #expect(record.coverImage == cover)
         #expect(record.content?.objectValue?["$type"] == .string("pub.leaflet.content"))
         let pages = record.content?.objectValue?["pages"]?.arrayValue
         #expect(pages?.first?.objectValue?["$type"] == .string("pub.leaflet.pages.linearDocument"))
@@ -397,7 +405,12 @@ struct AppLogicTests {
 
         let leaflet = try PublicationContentAdapter.prepare(document: document, host: .leaflet, images: [image])
         let leafletBlocks = try #require(leaflet.content.objectValue?["pages"]?.arrayValue?.first?.objectValue?["blocks"]?.arrayValue)
-        #expect(leafletBlocks[0].objectValue?["block"]?.objectValue?["$type"] == .string("pub.leaflet.blocks.image"))
+        let leafletImage = try #require(leafletBlocks[0].objectValue?["block"]?.objectValue)
+        #expect(leafletImage["$type"] == .string("pub.leaflet.blocks.image"))
+        #expect(leafletImage["image"]?.objectValue?["ref"]?.objectValue?["$link"] == .string("bafkreibodyimage"))
+        #expect(leafletImage["alt"] == .string("Diagram"))
+        #expect(leafletImage["aspectRatio"]?.objectValue?["width"] == .integer(1200))
+        #expect(leafletImage["aspectRatio"]?.objectValue?["height"] == .integer(630))
         #expect(leafletBlocks[1].objectValue?["block"]?.objectValue?["$type"] == .string("pub.leaflet.blocks.website"))
 
         let offprint = try PublicationContentAdapter.prepare(document: document, host: .offprint, images: [image])

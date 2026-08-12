@@ -84,6 +84,7 @@ describe("publication discovery UI", () => {
     render(<CmsWorkspace />);
 
     expect(await screen.findByText("Sam Writer")).toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.getByText("@writer.example")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Sam Writer profile picture" })).toHaveStyle({
       backgroundImage: "url(https://pds.example/avatar.jpg)",
@@ -270,7 +271,7 @@ describe("publication discovery UI", () => {
     expect(screen.getByText(draft.publicationURI)).toBeInTheDocument();
   });
 
-  it("preserves comma-separated tag entry and commits every tag", () => {
+  it("turns space- and comma-separated tags into individual removable pills", () => {
     const draft: Draft = {
       id: "draft-id",
       accountDID: "did:plc:writer",
@@ -296,12 +297,50 @@ describe("publication discovery UI", () => {
     );
     const input = screen.getByLabelText("Tags");
 
-    fireEvent.change(input, { target: { value: "release, accessibility, release" } });
-    expect(input).toHaveValue("release, accessibility, release");
-    fireEvent.blur(input);
+    expect(screen.getByText("release")).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "accessibility updates," } });
 
-    expect(input).toHaveValue("release, accessibility");
-    expect(onDraftChange).toHaveBeenCalledWith({ tags: ["release", "accessibility"] });
+    expect(input).toHaveValue("");
+    expect(screen.getByText("accessibility")).toBeInTheDocument();
+    expect(screen.getByText("updates")).toBeInTheDocument();
+    expect(onDraftChange).toHaveBeenCalledWith({ tags: ["release", "accessibility", "updates"] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove accessibility tag" }));
+    expect(screen.queryByText("accessibility")).not.toBeInTheDocument();
+    expect(onDraftChange).toHaveBeenLastCalledWith({ tags: ["release", "updates"] });
+  });
+
+  it("shows the selected cover image as a preview", () => {
+    const draft: Draft = {
+      id: "draft-id",
+      accountDID: "did:plc:writer",
+      publicationURI: "at://did:plc:writer/site.standard.publication/blog",
+      publicationURL: "https://writer.example",
+      title: "Covered draft",
+      tags: [],
+      markdown: "Body",
+      plaintext: "Body",
+      coverAssetID: "d9428888-122b-11e1-b85c-61cd3cbb3210",
+      status: "draft",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+
+    render(
+      <RightPanel
+        draft={draft}
+        calendarItems={[]}
+        onScheduledDate={() => {}}
+        onSchedule={() => {}}
+        onDraftChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("img", { name: "Cover image preview" })).toHaveAttribute(
+      "src",
+      "http://localhost:8080/api/assets/d9428888-122b-11e1-b85c-61cd3cbb3210/content",
+    );
+    expect(screen.getByRole("button", { name: "Replace" })).toBeInTheDocument();
   });
 
   it("warns that externally published pckt posts will not appear on the site", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { BookOpenIcon, LibraryIcon, LogOutIcon, MoonIcon, RefreshCwIcon, RocketIcon, SunIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NewDraftDialog } from "@/components/cms/post-dialogs";
@@ -42,7 +43,10 @@ export function WorkspaceHeader({
   return (
     <header className="grid min-h-16 shrink-0 grid-cols-1 items-center gap-3 border-b px-4 py-2 lg:grid-cols-[minmax(180px,1fr)_auto_minmax(320px,1fr)] lg:py-0">
       <div className="min-w-0">
-        <div className="truncate text-sm font-semibold">AnyPub</div>
+        <div className="flex items-center gap-2">
+          <div className="truncate text-sm font-semibold">AnyPub</div>
+          <Badge variant="secondary" className="uppercase tracking-wide">Alpha</Badge>
+        </div>
         <div className="text-muted-foreground truncate text-xs">standard.site CMS</div>
       </div>
       <nav aria-label="Workspace" className="bg-muted flex w-fit rounded-md p-1">

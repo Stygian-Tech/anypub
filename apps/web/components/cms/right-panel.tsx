@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { format, parseISO } from "date-fns";
-import { CalendarDaysIcon, ClockIcon, ImageIcon } from "lucide-react";
+import { CalendarDaysIcon, ClockIcon, ImageIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
-import { uploadImage } from "@/lib/asset-api";
+import { assetContentURL, uploadImage } from "@/lib/asset-api";
 import { calendarItemsFromDrafts } from "@/lib/cms-data";
 import type { Draft, DraftStatus, Publication } from "@/lib/types";
 
@@ -31,29 +31,60 @@ const sideTabsTriggerClassName = "min-w-0 px-1 text-center leading-none";
 const sideTabsTriggerStyle = { fontSize: "clamp(0.75rem, 0.95vw, 0.875rem)" };
 
 function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (tags: string[]) => void }) {
-  const [value, setValue] = React.useState(() => tags.join(", "));
+  const [committedTags, setCommittedTags] = React.useState(tags);
+  const [value, setValue] = React.useState("");
 
-  function commit() {
-    const committedTags = [...new Set(value.split(",").map((tag) => tag.trim()).filter(Boolean))];
-    setValue(committedTags.join(", "));
-    onCommit(committedTags);
+  function updateTags(nextTags: string[]) {
+    const uniqueTags = [...new Set(nextTags.map((tag) => tag.trim()).filter(Boolean))];
+    setCommittedTags(uniqueTags);
+    onCommit(uniqueTags);
+  }
+
+  function acceptValue(nextValue: string, commitLastToken = false) {
+    const tokens = nextValue.split(/[\s,]+/);
+    const endsWithSeparator = /[\s,]$/.test(nextValue);
+    const pendingValue = commitLastToken || endsWithSeparator ? "" : tokens.pop() ?? "";
+    const completedTokens = tokens.filter(Boolean);
+
+    setValue(pendingValue);
+    if (completedTokens.length > 0 || (commitLastToken && pendingValue)) {
+      updateTags([...committedTags, ...completedTokens, ...(commitLastToken && pendingValue ? [pendingValue] : [])]);
+    }
   }
 
   return (
-    <Input
-      id="tags"
-      value={value}
-      placeholder="release, accessibility, updates"
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          commit();
-          event.currentTarget.blur();
-        }
-      }}
-    />
+    <div className="flex flex-wrap items-center gap-1.5 rounded-md border bg-background p-1.5 shadow-xs focus-within:ring-2 focus-within:ring-ring">
+      {committedTags.map((tag) => (
+        <Badge key={tag} variant="secondary" className="gap-1 pl-2 pr-1">
+          {tag}
+          <button
+            type="button"
+            aria-label={`Remove ${tag} tag`}
+            className="hover:bg-foreground/10 rounded-sm p-0.5"
+            onClick={() => updateTags(committedTags.filter((candidate) => candidate !== tag))}
+          >
+            <XIcon className="size-3" />
+          </button>
+        </Badge>
+      ))}
+      <Input
+        id="tags"
+        value={value}
+        placeholder={committedTags.length > 0 ? "Add tag" : "release accessibility updates"}
+        className="h-7 min-w-24 flex-1 border-0 px-1 shadow-none focus-visible:ring-0"
+        onChange={(event) => acceptValue(event.target.value)}
+        onBlur={() => acceptValue(value, true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            acceptValue(value, true);
+          }
+          if (event.key === "Backspace" && !value && committedTags.length > 0) {
+            updateTags(committedTags.slice(0, -1));
+          }
+        }}
+      />
+    </div>
   );
 }
 
@@ -163,7 +194,17 @@ export function RightPanel({
                   </CardTitle>
                   <CardDescription>Upload a cover image to publish it as a `coverImage` blob.</CardDescription>
                 </CardHeader>
-                <CardContent className="flex gap-2">
+                <CardContent className="flex flex-col gap-3">
+                  {draft.coverAssetID ? (
+                    <figure className="overflow-hidden rounded-md border bg-muted/30">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={assetContentURL(draft.coverAssetID)}
+                        alt="Cover image preview"
+                        className="max-h-56 w-full object-contain"
+                      />
+                    </figure>
+                  ) : null}
                   <input
                     ref={coverInputRef}
                     className="sr-only"

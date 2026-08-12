@@ -31,11 +31,18 @@ const baseMetadata: Metadata = {
     description: "A standard.site CMS for ATProto publications.",
     siteName: "AnyPub",
     type: "website",
+    images: [{
+      url: "/opengraph-image.png",
+      width: 1200,
+      height: 630,
+      alt: "AnyPub publishes one article to ATProto publications",
+    }],
   },
   twitter: {
     card: "summary_large_image",
     title: "AnyPub",
     description: "A standard.site CMS for ATProto publications.",
+    images: ["/opengraph-image.png"],
   },
 };
 
