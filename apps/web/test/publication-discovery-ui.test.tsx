@@ -32,6 +32,19 @@ afterEach(() => {
 });
 
 describe("publication discovery UI", () => {
+  it("treats an unauthenticated account response as a signed-out session", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ error: true, reason: "Sign in to continue" }),
+      { status: 401, headers: { "content-type": "application/json" } },
+    )));
+
+    render(<CmsWorkspace />);
+
+    expect(await screen.findByText("Connect your publication account")).toBeInTheDocument();
+    expect(screen.queryByText("AnyPub could not reach the account service.")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Handle" })).toBeEnabled();
+  });
+
   it("shows account identity, publication icons, and a complete publications inventory", async () => {
     const account = {
       id: "account-id",
