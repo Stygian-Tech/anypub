@@ -5,6 +5,37 @@ import VaporTesting
 
 @Suite("AnyPub backend logic")
 struct AppLogicTests {
+    @Test("ATProto record CID matches a PDS-produced DAG-CBOR CID")
+    func atProtoRecordCID() throws {
+        let json = #"""
+        {"path":"/another-remote-test-psbyfky","site":"at://did:plc:zu7vdjfbiijes5rjcaaqtzke/site.standard.publication/3mstwt6fh3frp","tags":[],"$type":"site.standard.document","langs":["en"],"title":"Another Remote Test","content":{"$type":"blog.pckt.content","items":[{"$type":"blog.pckt.block.heading","level":1,"plaintext":"Here's Another Test"},{"$type":"blog.pckt.block.text","plaintext":"This post is coming from AnyPub, if it shows up, we've got something interesting happening"},{"$type":"blog.pckt.block.text","plaintext":"If it doesn't, we've also got something interesting happening, but I don't quite know what it is"}]},"updatedAt":"2026-08-12T04:47:37.000Z","description":"This post is coming from AnyPub, if it shows up, we've got something interesting happening If it doesn't, we've also got something interesting happening, but I don't quite know what it is","publishedAt":"2026-08-12T04:47:37.000Z","textContent":"Here's Another Test\nThis post is coming from AnyPub, if it shows up, we've got something interesting happening\nIf it doesn't, we've also got something interesting happening, but I don't quite know what it is"}
+        """#
+        let value = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+        #expect(try ATProtoRecordCID.string(for: value) == "bafyreiellzaalklan3gxgxq5vk23c76zfftjzntblf5xtybux66gf6clvq")
+    }
+
+    @Test("ATProto record CID encodes blob references as DAG-CBOR links")
+    func atProtoBlobCID() throws {
+        let blob = ATProtoBlobRef(
+            type: "blob",
+            ref: .init(link: "bafkreiahuldz3oqngpfq6nyueb252o6lkhqptwjn7mqumzfykpjqhzvmci"),
+            mimeType: "image/png",
+            size: 48_255
+        )
+        #expect(try ATProtoRecordCID.string(for: blob) == "bafyreiecsgc2guxre4uoa75mobpno6etoheakos7tjag5yq6it5k7qq7cm")
+    }
+
+    @Test("ATProto TIDs are stable, sortable record keys")
+    func atProtoTID() {
+        let generator = ATProtoTIDGenerator()
+        let first = generator.generate(now: Date(timeIntervalSince1970: 1_800_000_000), clockID: 0)
+        let second = generator.generate(now: Date(timeIntervalSince1970: 1_800_000_001), clockID: 0)
+
+        #expect(first.count == 13)
+        #expect(first < second)
+        #expect(first.wholeMatch(of: /^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/) != nil)
+    }
+
     @Test("pckt paths use a stable native-style discriminator")
     func pcktPathsUseStableDiscriminator() throws {
         let draftID = try #require(UUID(uuidString: "00000000-0000-0000-0000-0123456789AB"))
@@ -791,22 +822,43 @@ private final class RecordingDeletionClient: Client, @unchecked Sendable {
     }
 
     func send(_ request: ClientRequest) -> EventLoopFuture<ClientResponse> {
+        if request.method == .GET,
+           request.url.string.contains("com.atproto.sync.getLatestCommit") {
+            var body = ByteBuffer()
+            body.writeString(#"{"cid":"bafyreirepohead","rev":"3mrevision"}"#)
+            return eventLoop.makeSucceededFuture(ClientResponse(
+                status: .ok,
+                headers: ["content-type": "application/json"],
+                body: body
+            ))
+        }
+
         guard request.method == .POST,
-              request.url.string.contains("com.atproto.repo.deleteRecord"),
               let body = request.body,
               let json = body.getString(at: body.readerIndex, length: body.readableBytes),
               let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let collection = object["collection"] as? String
-        else {
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return eventLoop.makeFailedFuture(RecordingDPoPClientError.invalidRequest) }
+
+        let nextCollections: [String]
+        if request.url.string.contains("com.atproto.repo.deleteRecord"),
+           let collection = object["collection"] as? String {
+            nextCollections = [collection]
+        } else if request.url.string.contains("com.atproto.repo.applyWrites"),
+                  let writes = object["writes"] as? [[String: Any]] {
+            nextCollections = writes.compactMap { $0["collection"] as? String }
+        } else {
             return eventLoop.makeFailedFuture(RecordingDPoPClientError.invalidRequest)
         }
         lock.lock()
-        collections.append(collection)
+        collections.append(contentsOf: nextCollections)
         lock.unlock()
+        var responseBody = ByteBuffer()
+        responseBody.writeString("{}")
         return eventLoop.makeSucceededFuture(ClientResponse(
             status: .ok,
-            headers: ["DPoP-Nonce": "deletion-nonce"]
+            headers: ["content-type": "application/json", "DPoP-Nonce": "deletion-nonce"],
+            body: responseBody
         ))
     }
 

@@ -141,7 +141,21 @@ This explains why the records look correct when inspected later while AnyPub doc
 
 The native pckt editor likely submits the related records atomically or has private ingestion coordination/retry behavior. This is an inference; pckt's publishing implementation was not available for inspection.
 
-## Proposed implementation
+## Implementation status
+
+Implemented locally on August 12, 2026:
+
+- pckt document creation and updates use one `com.atproto.repo.applyWrites` transaction.
+- The standard document and pckt wrapper use the same locally generated TID rkey.
+- AnyPub computes the standard document's CID from canonical DAG-CBOR before constructing the wrapper strong reference.
+- The transaction uses `swapCommit` against the repository head to reject concurrent mutations.
+- pckt unpublish deletes the wrapper and standard document in one transaction.
+- Publication verification checks the live standard record, pckt strong reference and CID, HTTPS publication URL, and well-known response.
+- Tests cover live-PDS-compatible record CIDs, blob links, transaction shape and DPoP authentication, stale publication references, mismatched well-known responses, and atomic unpublish.
+
+The remaining validation is operational: deploy to development, publish a new article, confirm pckt indexes and renders it, and republish an older missed article to verify recovery.
+
+## Implementation details
 
 ### 1. Atomically write the standard document and pckt wrapper
 
@@ -160,11 +174,7 @@ Because the wrapper needs the document CID before the PDS processes the transact
 
 An edit must atomically update both records so the wrapper never exposes a stale document CID.
 
-Use swap conditions where appropriate to avoid overwriting concurrent changes:
-
-- `swapRecord` for the prior document CID.
-- `swapRecord` for the prior wrapper CID.
-- `swapCommit` when the workflow has a known repository head and can safely retry a conflict.
+Use `swapCommit` with the repository head to avoid overwriting concurrent changes. The current `applyWrites` lexicon does not expose per-record `swapRecord` fields.
 
 ### 3. Strengthen publication verification in AnyPub
 
@@ -219,4 +229,3 @@ pckt should independently retry documents that fail relationship verification an
 - [Standard.site verification](https://standard.site/docs/verification/)
 - [Indexing Standard.site records](https://atproto.com/blog/indexing-standard-site)
 - [`com.atproto.repo.applyWrites` lexicon](https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/applyWrites.json)
-

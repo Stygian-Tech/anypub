@@ -23,6 +23,11 @@ struct UploadBlobResponse: Content, Sendable {
     let blob: ATProtoBlobRef
 }
 
+struct LatestCommitResponse: Content, Sendable {
+    let cid: String
+    let rev: String
+}
+
 struct CreateRecordInput<Record: Codable & Sendable>: Content, Sendable {
     let repo: String
     let collection: String
@@ -40,6 +45,59 @@ struct DeleteRecordInput: Content, Sendable {
     let repo: String
     let collection: String
     let rkey: String
+}
+
+struct ApplyWritesInput: Content, Sendable {
+    let repo: String
+    let validate: Bool?
+    let writes: [ApplyWrite]
+    let swapCommit: String?
+
+    init(repo: String, validate: Bool? = nil, writes: [ApplyWrite], swapCommit: String? = nil) {
+        self.repo = repo
+        self.validate = validate
+        self.writes = writes
+        self.swapCommit = swapCommit
+    }
+}
+
+struct ApplyWrite: Codable, Equatable, Sendable {
+    enum Action: String, Codable, Sendable {
+        case create = "com.atproto.repo.applyWrites#create"
+        case update = "com.atproto.repo.applyWrites#update"
+        case delete = "com.atproto.repo.applyWrites#delete"
+    }
+
+    let type: Action
+    let collection: String
+    let rkey: String
+    let value: JSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "$type"
+        case collection
+        case rkey
+        case value
+    }
+}
+
+struct ApplyWritesResponse: Content, Sendable {
+    let results: [ApplyWriteResult]?
+}
+
+struct ApplyWriteResult: Codable, Sendable {
+    let uri: String?
+    let cid: String?
+}
+
+private struct XRPCErrorResponse: Decodable {
+    let error: String?
+    let message: String?
+}
+
+struct PcktDocumentWriteResult: Sendable {
+    let document: CreateRecordResponse
+    let wrapper: CreateRecordResponse
 }
 
 struct ATProtoXRPCClient: Sendable {
@@ -77,6 +135,34 @@ struct ATProtoXRPCClient: Sendable {
         let response = try await client.get(URI(string: uri)).get()
         try requireSuccess(response, operation: "publication listing")
         return try response.content.decode(ListRecordsResponse<JSONValue>.self)
+    }
+
+    func getRecord(
+        account: LinkedAccount,
+        collection: String,
+        rkey: String,
+        client: Client
+    ) async throws -> RepositoryRecord<JSONValue>? {
+        let uri = try xrpcURL(
+            pdsURL: account.pdsURL,
+            method: "com.atproto.repo.getRecord",
+            query: ["repo": account.did, "collection": collection, "rkey": rkey]
+        )
+        let response = try await client.get(URI(string: uri)).get()
+        if response.status == .notFound { return nil }
+        try requireSuccess(response, operation: "record lookup")
+        return try response.content.decode(RepositoryRecord<JSONValue>.self)
+    }
+
+    func getLatestCommit(account: LinkedAccount, client: Client) async throws -> LatestCommitResponse {
+        let uri = try xrpcURL(
+            pdsURL: account.pdsURL,
+            method: "com.atproto.sync.getLatestCommit",
+            query: ["did": account.did]
+        )
+        let response = try await client.get(URI(string: uri)).get()
+        try requireSuccess(response, operation: "repository head lookup")
+        return try response.content.decode(LatestCommitResponse.self)
     }
 
     func createDocument(
@@ -168,21 +254,83 @@ struct ATProtoXRPCClient: Sendable {
         )
     }
 
-    func putPcktDocument(
+    func applyPcktDocumentWrites(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
         database: Database,
         rkey: String,
-        record: PcktDocumentRecord,
+        document: StandardSiteDocumentRecord,
+        pcktPublicationURI: String,
+        documentExists: Bool,
+        wrapperExists: Bool,
+        swapCommit: String? = nil,
         client: Client
-    ) async throws -> CreateRecordResponse {
-        try await putRecord(
+    ) async throws -> PcktDocumentWriteResult {
+        let documentValue = try ATProtoRecordCID.jsonValue(document)
+        let documentCID = try ATProtoRecordCID.string(for: documentValue)
+        let documentURI = "at://\(account.did)/site.standard.document/\(rkey)"
+        let wrapper = PcktDocumentRecord(
+            document: StrongReference(uri: documentURI, cid: documentCID),
+            site: pcktPublicationURI
+        )
+        let wrapperValue = try ATProtoRecordCID.jsonValue(wrapper)
+        let wrapperCID = try ATProtoRecordCID.string(for: wrapperValue)
+        let wrapperURI = "at://\(account.did)/blog.pckt.document/\(rkey)"
+        let writes = [
+            ApplyWrite(
+                type: documentExists ? .update : .create,
+                collection: "site.standard.document",
+                rkey: rkey,
+                value: documentValue
+            ),
+            ApplyWrite(
+                type: wrapperExists ? .update : .create,
+                collection: "blog.pckt.document",
+                rkey: rkey,
+                value: wrapperValue
+            ),
+        ]
+        let response = try await applyWrites(
             account: account,
             tokenEncryption: tokenEncryption,
             database: database,
-            collection: "blog.pckt.document",
-            rkey: rkey,
-            record: record,
+            writes: writes,
+            swapCommit: swapCommit,
+            client: client
+        )
+        if let results = response.results {
+            guard results.count == 2,
+                  results[0].uri == documentURI,
+                  results[0].cid == documentCID,
+                  results[1].uri == wrapperURI,
+                  results[1].cid == wrapperCID
+            else {
+                throw Abort(.badGateway, reason: "PDS returned unexpected results for the atomic pckt document transaction")
+            }
+        }
+        return PcktDocumentWriteResult(
+            document: CreateRecordResponse(uri: documentURI, cid: documentCID),
+            wrapper: CreateRecordResponse(uri: wrapperURI, cid: wrapperCID)
+        )
+    }
+
+    func applyPcktDocumentDeletes(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        rkey: String,
+        swapCommit: String? = nil,
+        client: Client
+    ) async throws {
+        _ = try await applyWrites(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            writes: [
+                ApplyWrite(type: .delete, collection: "blog.pckt.document", rkey: rkey, value: nil),
+                ApplyWrite(type: .delete, collection: "site.standard.document", rkey: rkey, value: nil),
+            ],
+            swapCommit: swapCommit,
             client: client
         )
     }
@@ -318,6 +466,36 @@ struct ATProtoXRPCClient: Sendable {
             throw Abort(.badGateway, reason: "PDS rejected record update")
         }
         return try response.content.decode(CreateRecordResponse.self)
+    }
+
+    private func applyWrites(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        writes: [ApplyWrite],
+        swapCommit: String? = nil,
+        client: Client
+    ) async throws -> ApplyWritesResponse {
+        let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.applyWrites")
+        let input = ApplyWritesInput(repo: account.did, writes: writes, swapCommit: swapCommit)
+        let response = try await send(
+            method: .POST, url: uri, account: account,
+            tokenEncryption: tokenEncryption, database: database, client: client
+        ) { request in
+            try request.content.encode(input)
+        }
+        if response.status == .badRequest,
+           let error = try? response.content.decode(XRPCErrorResponse.self),
+           error.error == "InvalidSwap" {
+            throw Abort(
+                .conflict,
+                reason: error.message ?? "The repository changed during publishing; retry the operation"
+            )
+        }
+        guard (200..<300).contains(response.status.code) else {
+            throw Abort(.badGateway, reason: "PDS rejected the atomic repository transaction")
+        }
+        return try response.content.decode(ApplyWritesResponse.self)
     }
 
     private func send(

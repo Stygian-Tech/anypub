@@ -13,6 +13,8 @@ struct PublishResult: Content, Sendable {
 struct PublisherService: Sendable {
     private let records = ProtocolRecordBuilder()
     private let xrpc = ATProtoXRPCClient()
+    private let pcktVerifier = PcktPublicationVerifier()
+    private let tidGenerator = ATProtoTIDGenerator()
 
     func publish(draft: Draft, req: Request) async throws -> PublishResult {
         guard let draftID = draft.id else { throw Abort(.badRequest, reason: "Draft must be saved before publishing") }
@@ -49,7 +51,11 @@ struct PublisherService: Sendable {
             description: host == .pckt ? draft.excerpt : nil
         )
         let pcktPublicationURI = try await host == .pckt
-            ? verifiedPcktPublicationURI(for: draft, account: account, req: req)
+            ? pcktVerifier.verify(
+                standardPublicationURI: draft.publicationURI,
+                account: account,
+                client: req.client
+            ).uri
             : nil
 
         draft.typedStatus = .publishing
@@ -68,60 +74,94 @@ struct PublisherService: Sendable {
                 pcktCompatible: host == .pckt
             )
             let documentResponse: CreateRecordResponse
-            if let existingDocumentURI, isUpdate {
-                documentResponse = try await xrpc.putDocument(
-                    account: account,
-                    tokenEncryption: req.application.tokenEncryption,
-                    database: req.db,
-                    rkey: try ATRecordReference(uri: existingDocumentURI).rkey,
-                    record: document,
-                    client: req.client
-                )
-            } else {
-                documentResponse = try await xrpc.createDocument(
-                    account: account,
-                    tokenEncryption: req.application.tokenEncryption,
-                    database: req.db,
-                    record: document,
-                    client: req.client
-                )
-            }
-
             let platformResponse: CreateRecordResponse?
-            do {
-                platformResponse = try await createPlatformDocument(
-                    host: host,
-                    pcktPublicationURI: pcktPublicationURI,
-                    document: documentResponse,
-                    existingPlatformDocumentURI: existingPlatformDocumentURI,
-                    account: account,
-                    req: req
-                )
-            } catch {
-                if isUpdate {
-                    draft.documentURI = documentResponse.uri
-                    draft.documentCID = documentResponse.cid
-                    try? await draft.save(on: req.db)
-                    throw Abort(.badGateway, reason: "The canonical document was updated, but its platform wrapper could not be refreshed")
+            if host == .pckt {
+                guard let pcktPublicationURI else {
+                    throw Abort(.unprocessableEntity, reason: "The pckt publication reference is missing")
                 }
-                do {
-                    try await xrpc.deleteRecord(
+                let rkey = try existingDocumentURI.map { try ATRecordReference(uri: $0).rkey }
+                    ?? tidGenerator.generate()
+                let repositoryHead = try await xrpc.getLatestCommit(account: account, client: req.client)
+                let documentExists = try await xrpc.getRecord(
+                    account: account,
+                    collection: "site.standard.document",
+                    rkey: rkey,
+                    client: req.client
+                ) != nil
+                let wrapperExists = try await xrpc.getRecord(
+                    account: account,
+                    collection: "blog.pckt.document",
+                    rkey: rkey,
+                    client: req.client
+                ) != nil
+                let result = try await xrpc.applyPcktDocumentWrites(
+                    account: account,
+                    tokenEncryption: req.application.tokenEncryption,
+                    database: req.db,
+                    rkey: rkey,
+                    document: document,
+                    pcktPublicationURI: pcktPublicationURI,
+                    documentExists: documentExists,
+                    wrapperExists: wrapperExists,
+                    swapCommit: repositoryHead.cid,
+                    client: req.client
+                )
+                documentResponse = result.document
+                platformResponse = result.wrapper
+            } else {
+                if let existingDocumentURI, isUpdate {
+                    documentResponse = try await xrpc.putDocument(
                         account: account,
                         tokenEncryption: req.application.tokenEncryption,
                         database: req.db,
-                        recordURI: documentResponse.uri,
+                        rkey: try ATRecordReference(uri: existingDocumentURI).rkey,
+                        record: document,
                         client: req.client
                     )
-                } catch let cleanupError {
-                    draft.documentURI = documentResponse.uri
-                    draft.documentCID = documentResponse.cid
-                    try? await draft.save(on: req.db)
-                    throw Abort(
-                        .badGateway,
-                        reason: "Platform wrapper failed and the canonical document could not be removed: \(cleanupError)"
+                } else {
+                    documentResponse = try await xrpc.createDocument(
+                        account: account,
+                        tokenEncryption: req.application.tokenEncryption,
+                        database: req.db,
+                        record: document,
+                        client: req.client
                     )
                 }
-                throw error
+
+                do {
+                    platformResponse = try await createPlatformDocument(
+                        host: host,
+                        document: documentResponse,
+                        existingPlatformDocumentURI: existingPlatformDocumentURI,
+                        account: account,
+                        req: req
+                    )
+                } catch {
+                    if isUpdate {
+                        draft.documentURI = documentResponse.uri
+                        draft.documentCID = documentResponse.cid
+                        try? await draft.save(on: req.db)
+                        throw Abort(.badGateway, reason: "The canonical document was updated, but its platform wrapper could not be refreshed")
+                    }
+                    do {
+                        try await xrpc.deleteRecord(
+                            account: account,
+                            tokenEncryption: req.application.tokenEncryption,
+                            database: req.db,
+                            recordURI: documentResponse.uri,
+                            client: req.client
+                        )
+                    } catch let cleanupError {
+                        draft.documentURI = documentResponse.uri
+                        draft.documentCID = documentResponse.cid
+                        try? await draft.save(on: req.db)
+                        throw Abort(
+                            .badGateway,
+                            reason: "Platform wrapper failed and the canonical document could not be removed: \(cleanupError)"
+                        )
+                    }
+                    throw error
+                }
             }
 
             draft.documentURI = documentResponse.uri
@@ -205,26 +245,43 @@ struct PublisherService: Sendable {
 
         try await deleteCalendarEvent(for: draft, account: account, req: req)
 
-        if let platformDocumentURI = draft.platformDocumentURI {
-            try await xrpc.deleteRecord(
+        if let platformDocumentURI = draft.platformDocumentURI,
+           let platformReference = try? ATRecordReference(uri: platformDocumentURI),
+           platformReference.collection == "blog.pckt.document",
+           platformReference.rkey == reference.rkey {
+            let repositoryHead = try await xrpc.getLatestCommit(account: account, client: req.client)
+            try await xrpc.applyPcktDocumentDeletes(
                 account: account,
                 tokenEncryption: req.application.tokenEncryption,
                 database: req.db,
-                recordURI: platformDocumentURI,
+                rkey: reference.rkey,
+                swapCommit: repositoryHead.cid,
                 client: req.client
             )
             draft.platformDocumentURI = nil
             draft.platformDocumentCID = nil
-            draft.updatedAt = Date()
-            try await draft.save(on: req.db)
+        } else {
+            if let platformDocumentURI = draft.platformDocumentURI {
+                try await xrpc.deleteRecord(
+                    account: account,
+                    tokenEncryption: req.application.tokenEncryption,
+                    database: req.db,
+                    recordURI: platformDocumentURI,
+                    client: req.client
+                )
+                draft.platformDocumentURI = nil
+                draft.platformDocumentCID = nil
+                draft.updatedAt = Date()
+                try await draft.save(on: req.db)
+            }
+            try await xrpc.deleteRecord(
+                account: account,
+                tokenEncryption: req.application.tokenEncryption,
+                database: req.db,
+                recordURI: documentURI,
+                client: req.client
+            )
         }
-        try await xrpc.deleteRecord(
-            account: account,
-            tokenEncryption: req.application.tokenEncryption,
-            database: req.db,
-            recordURI: documentURI,
-            client: req.client
-        )
         draft.documentURI = nil
         draft.documentCID = nil
         draft.publishedAt = nil
@@ -286,27 +343,8 @@ struct PublisherService: Sendable {
         return prepared.replacingOffload(with: blob)
     }
 
-    private func verifiedPcktPublicationURI(
-        for draft: Draft,
-        account: LinkedAccount,
-        req: Request
-    ) async throws -> String {
-        let publication = try ATRecordReference(uri: draft.publicationURI)
-        let exists = try await xrpc.recordExists(
-            account: account,
-            collection: "blog.pckt.publication",
-            rkey: publication.rkey,
-            client: req.client
-        )
-        guard exists else {
-            throw Abort(.unprocessableEntity, reason: "The selected standard.site publication has no matching pckt publication")
-        }
-        return "at://\(publication.repo)/blog.pckt.publication/\(publication.rkey)"
-    }
-
     private func createPlatformDocument(
         host: PublicationHost,
-        pcktPublicationURI: String?,
         document: CreateRecordResponse,
         existingPlatformDocumentURI: String?,
         account: LinkedAccount,
@@ -335,18 +373,7 @@ struct PublisherService: Sendable {
                 client: req.client
             )
         case .pckt:
-            guard let pcktPublicationURI else {
-                throw Abort(.unprocessableEntity, reason: "The pckt publication reference is missing")
-            }
-            let rkey = try ATRecordReference(uri: document.uri).rkey
-            return try await xrpc.putPcktDocument(
-                account: account,
-                tokenEncryption: req.application.tokenEncryption,
-                database: req.db,
-                rkey: rkey,
-                record: PcktDocumentRecord(document: reference, site: pcktPublicationURI),
-                client: req.client
-            )
+            throw Abort(.internalServerError, reason: "pckt documents must use the atomic publishing transaction")
         }
     }
 
