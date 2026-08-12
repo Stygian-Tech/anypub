@@ -18,9 +18,10 @@ export type Publication = {
   name: string;
   url: string;
   description?: string;
+  iconURL?: string;
   themeType?: string;
   themeName?: string;
-  host?: "leaflet" | "offprint" | "pckt";
+  host?: "leaflet" | "markpub" | "offprint" | "pckt";
   syncedAt: string;
 };
 
@@ -50,6 +51,18 @@ export type Draft = {
   platformDocumentCID?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CoverAsset = {
+  id: string;
+  accountDID: string;
+  source: string;
+  mimeType: string;
+  byteSize: number;
+  altText?: string;
+  width?: number;
+  height?: number;
+  createdAt: string;
 };
 
 export type CalendarItem = {

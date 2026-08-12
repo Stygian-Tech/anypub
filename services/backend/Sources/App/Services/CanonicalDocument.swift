@@ -6,6 +6,7 @@ enum InlineFeature: Equatable, Sendable {
     case italic
     case code
     case strikethrough
+    case underline
     case link(String)
 }
 
@@ -44,12 +45,15 @@ enum CanonicalBlock: Equatable, Sendable {
     case quote([RichText])
     case list(CanonicalList)
     case code(language: String?, source: String)
+    case image(assetID: UUID, alt: String)
+    case embed(url: String)
     case thematicBreak
 }
 
 struct CanonicalDocument: Equatable, Sendable {
     let blocks: [CanonicalBlock]
     let plaintext: String
+    let markdown: String
 }
 
 private struct BlockDocumentSnapshot: Decodable {
@@ -109,7 +113,7 @@ enum CanonicalDocumentLoader {
         let normalized = normalize(markdown)
         let sources = splitSources(normalized)
         let blocks = canonicalBlocks(from: sources.map(inferBlock))
-        return CanonicalDocument(blocks: blocks, plaintext: plaintext(from: blocks))
+        return CanonicalDocument(blocks: blocks, plaintext: plaintext(from: blocks), markdown: normalized)
     }
 
     private static func loadSnapshot(
@@ -144,13 +148,15 @@ enum CanonicalDocumentLoader {
         guard ids.allSatisfy({ !$0.isEmpty }), Set(ids).count == ids.count else {
             throw Abort(.unprocessableEntity, reason: "Block document IDs must be non-empty and unique")
         }
-        let kinds = Set(["empty", "heading", "thematic-break", "quote", "unordered-list", "ordered-list", "code", "paragraph"])
+        let kinds = Set(["empty", "heading", "thematic-break", "quote", "unordered-list", "ordered-list", "code", "image", "embed", "paragraph"])
         guard snapshot.blocks.allSatisfy({ block in
             guard kinds.contains(block.kind) else { return false }
             switch block.kind {
             case "heading": return (1...6).contains(block.headingLevel ?? 0)
             case "unordered-list": return (0...4).contains(block.listLevel ?? -1)
             case "ordered-list": return (0...4).contains(block.listLevel ?? -1) && (block.listStart ?? 0) >= 1
+            case "image": return parseImageSource(block.source) != nil
+            case "embed": return parseEmbedSource(block.source) != nil
             default: return true
             }
         }) else {
@@ -160,7 +166,7 @@ enum CanonicalDocumentLoader {
             throw Abort(.unprocessableEntity, reason: "Block document Markdown does not match its blocks")
         }
         let blocks = canonicalBlocks(from: snapshot.blocks)
-        return CanonicalDocument(blocks: blocks, plaintext: plaintext(from: blocks))
+        return CanonicalDocument(blocks: blocks, plaintext: plaintext(from: blocks), markdown: markdown)
     }
 
     private static func canonicalBlocks(from sourceBlocks: [BlockDocumentBlock]) -> [CanonicalBlock] {
@@ -198,6 +204,14 @@ enum CanonicalDocumentLoader {
                     result.append(.quote(lines))
                 case "code":
                     result.append(.code(language: block.language, source: stripCodeFence(block.source)))
+                case "image":
+                    if let image = parseImageSource(block.source) {
+                        result.append(.image(assetID: image.assetID, alt: image.alt))
+                    }
+                case "embed":
+                    if let url = parseEmbedSource(block.source) {
+                        result.append(.embed(url: url))
+                    }
                 default:
                     result.append(.paragraph(InlineMarkdown.parse(block.source.replacingOccurrences(of: "\n", with: " "))))
                 }
@@ -260,6 +274,8 @@ enum CanonicalDocumentLoader {
             case .quote(let lines): return lines.map(\.plaintext)
             case .list(let list): return listPlaintext(list)
             case .code(_, let source): return [source]
+            case .image(_, let alt): return alt.isEmpty ? [] : [alt]
+            case .embed(let url): return [url]
             case .thematicBreak: return []
             }
         }.filter { !$0.isEmpty }.joined(separator: "\n")
@@ -317,6 +333,12 @@ enum CanonicalDocumentLoader {
             let language = trimmed.components(separatedBy: "\n").first?.dropFirst(3)
             return .init(id: UUID().uuidString, kind: "code", source: source, headingLevel: nil, listLevel: nil, listStart: nil, language: language.flatMap { $0.isEmpty ? nil : String($0) })
         }
+        if parseImageSource(trimmed) != nil {
+            return .init(id: UUID().uuidString, kind: "image", source: source, headingLevel: nil, listLevel: nil, listStart: nil, language: nil)
+        }
+        if parseEmbedSource(trimmed) != nil {
+            return .init(id: UUID().uuidString, kind: "embed", source: source, headingLevel: nil, listLevel: nil, listStart: nil, language: nil)
+        }
         if trimmed.range(of: #"^\s{0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$"#, options: .regularExpression) != nil {
             return .init(id: UUID().uuidString, kind: "thematic-break", source: source, headingLevel: nil, listLevel: nil, listStart: nil, language: nil)
         }
@@ -363,6 +385,31 @@ enum CanonicalDocumentLoader {
     private static func isListLine(_ line: String) -> Bool {
         line.range(of: #"^[ \t]*(?:[-*+]|\d+\.)(?:\s+|$)"#, options: .regularExpression) != nil
     }
+
+    private static func parseImageSource(_ source: String) -> (assetID: UUID, alt: String)? {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("!["), trimmed.hasSuffix(")"),
+              let separator = trimmed.range(of: "](anypub-asset://")
+        else { return nil }
+        let alt = String(trimmed[trimmed.index(trimmed.startIndex, offsetBy: 2)..<separator.lowerBound])
+        let idStart = separator.upperBound
+        let idEnd = trimmed.index(before: trimmed.endIndex)
+        guard let assetID = UUID(uuidString: String(trimmed[idStart..<idEnd])) else { return nil }
+        return (assetID, alt)
+    }
+
+    private static func parseEmbedSource(_ source: String) -> String? {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "@[embed]("
+        guard trimmed.hasPrefix(prefix), trimmed.hasSuffix(")") else { return nil }
+        let value = String(trimmed.dropFirst(prefix.count).dropLast())
+        guard let components = URLComponents(string: value),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              components.host != nil
+        else { return nil }
+        return value
+    }
 }
 
 private enum InlineMarkdown {
@@ -393,7 +440,7 @@ private enum InlineMarkdown {
                     return
                 }
                 if consumeLink(image: true) || consumeLink(image: false) { continue }
-                if consumeDelimited("**", feature: .bold) || consumeDelimited("__", feature: .bold) || consumeDelimited("~~", feature: .strikethrough) || consumeDelimited("`", feature: .code) || consumeDelimited("*", feature: .italic) || consumeDelimited("_", feature: .italic) { continue }
+                if consumeDelimited("**", feature: .bold) || consumeDelimited("__", feature: .bold) || consumeDelimited("~~", feature: .strikethrough) || consumeDelimited("++", feature: .underline) || consumeDelimited("`", feature: .code) || consumeDelimited("*", feature: .italic) || consumeDelimited("_", feature: .italic) { continue }
                 output.append(source[index])
                 index = source.index(after: index)
             }

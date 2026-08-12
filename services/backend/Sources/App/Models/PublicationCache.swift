@@ -25,6 +25,9 @@ final class PublicationCache: Model, Content, @unchecked Sendable {
     @OptionalField(key: "description")
     var publicationDescription: String?
 
+    @OptionalField(key: "icon_cid")
+    var iconCID: String?
+
     @OptionalField(key: "theme_type")
     var themeType: String?
 
@@ -47,6 +50,7 @@ final class PublicationCache: Model, Content, @unchecked Sendable {
         name: String,
         url: String,
         publicationDescription: String?,
+        iconCID: String? = nil,
         themeType: String? = nil,
         themeName: String? = nil,
         host: PublicationHost? = nil,
@@ -59,6 +63,7 @@ final class PublicationCache: Model, Content, @unchecked Sendable {
         self.name = name
         self.url = url
         self.publicationDescription = publicationDescription
+        self.iconCID = iconCID
         self.themeType = themeType
         self.themeName = themeName
         self.host = host?.rawValue

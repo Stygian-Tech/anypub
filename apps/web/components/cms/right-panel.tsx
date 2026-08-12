@@ -1,7 +1,9 @@
 "use client";
 
+import * as React from "react";
 import { format, parseISO } from "date-fns";
-import { CalendarDaysIcon, ClockIcon, ImageIcon } from "lucide-react";
+import { CalendarDaysIcon, ClockIcon, ImageIcon, XIcon } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -12,12 +14,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
+import { ExperimentalBadge, ExperimentalGlyph } from "@/components/cms/experimental-badge";
+import { assetContentURL, uploadImage } from "@/lib/asset-api";
 import { calendarItemsFromDrafts } from "@/lib/cms-data";
 import type { Draft, DraftStatus, Publication } from "@/lib/types";
 
-const statusVariant: Record<DraftStatus, "default" | "secondary" | "outline" | "destructive"> = {
+const statusVariant: Record<DraftStatus, "default" | "secondary" | "accent" | "outline" | "destructive"> = {
   draft: "outline",
-  scheduled: "secondary",
+  scheduled: "accent",
   publishing: "secondary",
   published: "default",
   failed: "destructive",
@@ -25,6 +30,64 @@ const statusVariant: Record<DraftStatus, "default" | "secondary" | "outline" | "
 const sideTabsListClassName = "grid w-full grid-cols-3 gap-1 p-1";
 const sideTabsTriggerClassName = "min-w-0 px-1 text-center leading-none";
 const sideTabsTriggerStyle = { fontSize: "clamp(0.75rem, 0.95vw, 0.875rem)" };
+
+function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (tags: string[]) => void }) {
+  const [committedTags, setCommittedTags] = React.useState(tags);
+  const [value, setValue] = React.useState("");
+
+  function updateTags(nextTags: string[]) {
+    const uniqueTags = [...new Set(nextTags.map((tag) => tag.trim()).filter(Boolean))];
+    setCommittedTags(uniqueTags);
+    onCommit(uniqueTags);
+  }
+
+  function acceptValue(nextValue: string, commitLastToken = false) {
+    const tokens = nextValue.split(/[\s,]+/);
+    const endsWithSeparator = /[\s,]$/.test(nextValue);
+    const pendingValue = commitLastToken || endsWithSeparator ? "" : tokens.pop() ?? "";
+    const completedTokens = tokens.filter(Boolean);
+
+    setValue(pendingValue);
+    if (completedTokens.length > 0 || (commitLastToken && pendingValue)) {
+      updateTags([...committedTags, ...completedTokens, ...(commitLastToken && pendingValue ? [pendingValue] : [])]);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-md border bg-background p-1.5 shadow-xs focus-within:ring-2 focus-within:ring-ring">
+      {committedTags.map((tag) => (
+        <Badge key={tag} variant="accent" className="gap-1 pl-2 pr-1">
+          {tag}
+          <button
+            type="button"
+            aria-label={`Remove ${tag} tag`}
+            className="hover:bg-foreground/10 rounded-sm p-0.5"
+            onClick={() => updateTags(committedTags.filter((candidate) => candidate !== tag))}
+          >
+            <XIcon className="size-3" />
+          </button>
+        </Badge>
+      ))}
+      <Input
+        id="tags"
+        value={value}
+        placeholder={committedTags.length > 0 ? "Add tag" : "release accessibility updates"}
+        className="h-7 min-w-24 flex-1 border-0 px-1 shadow-none focus-visible:ring-0"
+        onChange={(event) => acceptValue(event.target.value)}
+        onBlur={() => acceptValue(value, true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            acceptValue(value, true);
+          }
+          if (event.key === "Backspace" && !value && committedTags.length > 0) {
+            updateTags(committedTags.slice(0, -1));
+          }
+        }}
+      />
+    </div>
+  );
+}
 
 export function RightPanel({
   draft,
@@ -43,6 +106,24 @@ export function RightPanel({
   onSchedule: () => void;
   onDraftChange: (patch: Partial<Draft>) => void;
 }) {
+  const coverInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploadingCover, setUploadingCover] = React.useState(false);
+
+  async function uploadCover(file?: File) {
+    if (!draft || !file) return;
+    setUploadingCover(true);
+    try {
+      const asset = await uploadImage(draft.accountDID, file, file.name.replace(/\.[^.]+$/, ""));
+      onDraftChange({ coverAssetID: asset.id });
+      toast.success("Cover image uploaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not upload cover image");
+    } finally {
+      setUploadingCover(false);
+      if (coverInputRef.current) coverInputRef.current.value = "";
+    }
+  }
+
   return (
     <aside className="hidden min-h-0 border-l xl:flex xl:flex-col">
       <Tabs defaultValue="metadata" className="min-h-0 flex-1">
@@ -52,10 +133,16 @@ export function RightPanel({
               <span className="min-w-0 truncate">Meta</span>
             </TabsTrigger>
             <TabsTrigger value="schedule" className={sideTabsTriggerClassName} style={sideTabsTriggerStyle}>
-              <span className="min-w-0 truncate">Schedule</span>
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                <ExperimentalGlyph />
+                Schedule
+              </span>
             </TabsTrigger>
             <TabsTrigger value="calendar" className={sideTabsTriggerClassName} style={sideTabsTriggerStyle}>
-              <span className="min-w-0 truncate">Calendar</span>
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                <ExperimentalGlyph />
+                Calendar
+              </span>
             </TabsTrigger>
           </TabsList>
         </div>
@@ -68,13 +155,22 @@ export function RightPanel({
                     Publication
                     {selectedPublication?.host ? (
                       <Badge variant="secondary">{selectedPublication.host}</Badge>
+                    ) : !selectedPublication ? (
+                      <Badge variant="destructive">Unavailable</Badge>
                     ) : null}
                   </CardTitle>
-                  <CardDescription>{selectedPublication?.themeType ?? selectedPublication?.url}</CardDescription>
+                  <CardDescription>
+                    {selectedPublication?.themeType
+                      ?? selectedPublication?.url
+                      ?? "This publication is no longer available in the discovered account records."}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-1 text-sm">
-                  <span className="truncate">{selectedPublication?.name ?? "No publication selected"}</span>
-                  <span className="text-muted-foreground truncate text-xs">{selectedPublication?.url}</span>
+                  <span className="truncate">{selectedPublication?.name ?? "Publication unavailable"}</span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    {selectedPublication?.url ?? draft.publicationURI}
+                  </span>
+                  {selectedPublication?.host === "pckt" ? <PcktPublishingNotice className="mt-2" /> : null}
                 </CardContent>
               </Card>
               <Field>
@@ -95,15 +191,7 @@ export function RightPanel({
               </Field>
               <Field>
                 <FieldLabel htmlFor="tags">Tags</FieldLabel>
-                <Input
-                  id="tags"
-                  value={draft.tags.join(", ")}
-                  onChange={(event) =>
-                    onDraftChange({
-                      tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean),
-                    })
-                  }
-                />
+                <TagInput key={draft.id} tags={draft.tags} onCommit={(tags) => onDraftChange({ tags })} />
               </Field>
               <Card>
                 <CardHeader>
@@ -111,11 +199,30 @@ export function RightPanel({
                     <ImageIcon />
                     Cover
                   </CardTitle>
-                  <CardDescription>Device upload and Unsplash covers publish as `coverImage` blobs.</CardDescription>
+                  <CardDescription>Upload a cover image to publish it as a `coverImage` blob.</CardDescription>
                 </CardHeader>
-                <CardContent className="flex gap-2">
-                  <Button variant="outline" size="sm">Upload</Button>
-                  <Button variant="outline" size="sm">Unsplash</Button>
+                <CardContent className="flex flex-col gap-3">
+                  {draft.coverAssetID ? (
+                    <figure className="overflow-hidden rounded-md border bg-muted/30">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={assetContentURL(draft.coverAssetID)}
+                        alt="Cover image preview"
+                        className="max-h-56 w-full object-contain"
+                      />
+                    </figure>
+                  ) : null}
+                  <input
+                    ref={coverInputRef}
+                    className="sr-only"
+                    type="file"
+                    accept="image/*"
+                    aria-label="Choose cover image"
+                    onChange={(event) => void uploadCover(event.target.files?.[0])}
+                  />
+                  <Button variant="outline" size="sm" disabled={uploadingCover} onClick={() => coverInputRef.current?.click()}>
+                    {uploadingCover ? "Uploading…" : draft.coverAssetID ? "Replace" : "Upload"}
+                  </Button>
                 </CardContent>
               </Card>
             </FieldGroup>
@@ -127,6 +234,7 @@ export function RightPanel({
               <CardTitle className="flex items-center gap-2">
                 <ClockIcon />
                 Publish date
+                <ExperimentalBadge className="ml-auto" />
               </CardTitle>
               <CardDescription>Scheduling creates or updates a community calendar event.</CardDescription>
             </CardHeader>
@@ -150,6 +258,10 @@ export function RightPanel({
           </Card>
         </TabsContent>
         <TabsContent value="calendar" className="min-h-0 overflow-auto p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="text-sm font-medium">Publication calendar</span>
+            <ExperimentalBadge />
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -175,4 +287,3 @@ export function RightPanel({
     </aside>
   );
 }
-

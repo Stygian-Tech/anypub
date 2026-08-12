@@ -13,6 +13,12 @@ export function loadAccounts(signal?: AbortSignal) {
   return apiFetch<LinkedAccount[]>("/api/accounts", { signal });
 }
 
+export function unlinkAccount(did: string) {
+  return apiFetch<void>(`/api/accounts/${encodeURIComponent(did)}`, {
+    method: "DELETE",
+  });
+}
+
 export function startOAuth(handle: string, redirectURL: string) {
   return apiFetch<OAuthStartResponse>("/api/auth/atproto/start", {
     method: "POST",

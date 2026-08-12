@@ -52,4 +52,13 @@ extension JSONValue {
         guard case .array(let value) = self else { return nil }
         return value
     }
+
+    var stringValue: String? {
+        guard case .string(let value) = self else { return nil }
+        return value
+    }
+
+    var blobCID: String? {
+        objectValue?["ref"]?.objectValue?["$link"]?.stringValue
+    }
 }

@@ -5,6 +5,65 @@ import VaporTesting
 
 @Suite("AnyPub backend logic")
 struct AppLogicTests {
+    @Test("ATProto record CID matches a PDS-produced DAG-CBOR CID")
+    func atProtoRecordCID() throws {
+        let json = #"""
+        {"path":"/another-remote-test-psbyfky","site":"at://did:plc:zu7vdjfbiijes5rjcaaqtzke/site.standard.publication/3mstwt6fh3frp","tags":[],"$type":"site.standard.document","langs":["en"],"title":"Another Remote Test","content":{"$type":"blog.pckt.content","items":[{"$type":"blog.pckt.block.heading","level":1,"plaintext":"Here's Another Test"},{"$type":"blog.pckt.block.text","plaintext":"This post is coming from AnyPub, if it shows up, we've got something interesting happening"},{"$type":"blog.pckt.block.text","plaintext":"If it doesn't, we've also got something interesting happening, but I don't quite know what it is"}]},"updatedAt":"2026-08-12T04:47:37.000Z","description":"This post is coming from AnyPub, if it shows up, we've got something interesting happening If it doesn't, we've also got something interesting happening, but I don't quite know what it is","publishedAt":"2026-08-12T04:47:37.000Z","textContent":"Here's Another Test\nThis post is coming from AnyPub, if it shows up, we've got something interesting happening\nIf it doesn't, we've also got something interesting happening, but I don't quite know what it is"}
+        """#
+        let value = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+        #expect(try ATProtoRecordCID.string(for: value) == "bafyreiellzaalklan3gxgxq5vk23c76zfftjzntblf5xtybux66gf6clvq")
+    }
+
+    @Test("ATProto record CID encodes blob references as DAG-CBOR links")
+    func atProtoBlobCID() throws {
+        let blob = ATProtoBlobRef(
+            type: "blob",
+            ref: .init(link: "bafkreiahuldz3oqngpfq6nyueb252o6lkhqptwjn7mqumzfykpjqhzvmci"),
+            mimeType: "image/png",
+            size: 48_255
+        )
+        #expect(try ATProtoRecordCID.string(for: blob) == "bafyreiecsgc2guxre4uoa75mobpno6etoheakos7tjag5yq6it5k7qq7cm")
+    }
+
+    @Test("ATProto TIDs are stable, sortable record keys")
+    func atProtoTID() {
+        let generator = ATProtoTIDGenerator()
+        let first = generator.generate(now: Date(timeIntervalSince1970: 1_800_000_000), clockID: 0)
+        let second = generator.generate(now: Date(timeIntervalSince1970: 1_800_000_001), clockID: 0)
+
+        #expect(first.count == 13)
+        #expect(first < second)
+        #expect(first.wholeMatch(of: /^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/) != nil)
+    }
+
+    @Test("pckt paths use a stable native-style discriminator")
+    func pcktPathsUseStableDiscriminator() throws {
+        let draftID = try #require(UUID(uuidString: "00000000-0000-0000-0000-0123456789AB"))
+
+        #expect(pcktCompatiblePath(title: "Testing Article", path: "/testing-article", draftID: draftID) == "/testing-article-56789ab")
+        #expect(pcktCompatiblePath(title: "Testing Article", path: "/my-custom-slug", draftID: draftID) == "/my-custom-slug-56789ab")
+        #expect(pcktCompatiblePath(title: "Changed", path: "/custom-path-56789ab", draftID: draftID) == "/custom-path-56789ab")
+    }
+
+    @Test("Offprint paths use the standard document rkey and preserve custom slugs")
+    func offprintPathsUseDocumentRkey() {
+        #expect(offprintCompatiblePath(
+            title: "ATProto Standards Bodies",
+            path: "/atproto-standards-bodies",
+            documentRkey: "3msmoumcr4d23"
+        ) == "/a/3msmoumcr4d23-atproto-standards-bodies")
+        #expect(offprintCompatiblePath(
+            title: "Changed title",
+            path: "/a/3msmoumcr4d23-custom-slug",
+            documentRkey: "3msmoumcr4d23"
+        ) == "/a/3msmoumcr4d23-custom-slug")
+        #expect(offprintCompatiblePath(
+            title: "Café Notes",
+            path: nil,
+            documentRkey: "3msmoumcr4d23"
+        ) == "/a/3msmoumcr4d23-cafe-notes")
+    }
+
     @Test("OAuth scopes include standard.site, calendar, and blob upload transition")
     func oauthScopes() {
         let scopes = OAuthScopeBuilder.cmsScopes().split(separator: " ").map(String.init)
@@ -42,6 +101,8 @@ struct AppLogicTests {
         #expect(PublicationHostDetector.detect(themeType: nil, themeURI: "at://did:plc:test/app.offprint.theme/default", themeName: nil, publicationURL: nil) == .offprint)
         #expect(PublicationHostDetector.detect(themeType: nil, themeName: "Leaflet editorial", publicationURL: nil) == .leaflet)
         #expect(PublicationHostDetector.detect(themeType: "blog.pckt.theme", themeName: nil, publicationURL: "https://offprint.example") == .pckt)
+        #expect(PublicationHostDetector.detect(themeType: nil, themeName: "Markpub Markdown", publicationURL: nil) == .markpub)
+        #expect(PublicationHostDetector.detect(themeType: nil, themeName: nil, publicationURL: "https://roll-your-own.example") == .markpub)
     }
 
     @Test("AT record references parse repo, collection, and rkey")
@@ -131,7 +192,55 @@ struct AppLogicTests {
         #expect(record.title == "Launch notes")
         #expect(record.path == "/launch")
         #expect(record.tags == ["release"])
+        #expect(record.langs == nil)
         #expect(record.textContent == "Launch notes\nBody")
+    }
+
+    @Test("pckt document record matches native discovery fields")
+    func pcktDocumentRecordCompatibility() throws {
+        let draft = try Draft(
+            accountDID: "did:plc:example",
+            publicationURI: "at://did:plc:example/site.standard.publication/abc",
+            publicationURL: "https://example.pckt.blog",
+            title: "Native pckt post",
+            path: "/native-pckt-post",
+            excerpt: "Summary",
+            tags: [],
+            markdown: "Body",
+            status: .published,
+            publishedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let record = ProtocolRecordBuilder().documentRecord(
+            draft: draft,
+            cover: nil,
+            content: .object(["$type": .string("blog.pckt.content"), "items": .array([])]),
+            textContent: "Summary\nBody",
+            pcktCompatible: true
+        )
+        #expect(record.tags == [])
+        #expect(record.langs == ["en"])
+        #expect(record.textContent == "Summary\nBody")
+
+        let encodedRecord = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any]
+        )
+        #expect((encodedRecord["publishedAt"] as? String)?.hasSuffix(".000Z") == true)
+        #expect((encodedRecord["updatedAt"] as? String)?.contains(".") == true)
+
+        let wrapper = PcktDocumentRecord(
+            document: StrongReference(
+                uri: "at://did:plc:example/site.standard.document/record",
+                cid: "bafyreiexample"
+            ),
+            site: "at://did:plc:example/blog.pckt.publication/abc"
+        )
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(wrapper)) as? [String: Any]
+        let document = encoded?["document"] as? [String: Any]
+        #expect(encoded?["$type"] as? String == "blog.pckt.document")
+        #expect(document?["$type"] == nil)
+        #expect(document?["uri"] as? String == "at://did:plc:example/site.standard.document/record")
+        #expect(document?["cid"] as? String == "bafyreiexample")
     }
 
     @Test("Document record includes exact Leaflet content envelope")
@@ -143,14 +252,22 @@ struct AppLogicTests {
             title: "Styled document",
             path: "/styled",
             excerpt: nil,
-            tags: [],
+            tags: ["leaflet", "images"],
             markdown: "# Heading\n\n- Item",
             status: .published,
             publishedAt: Date(timeIntervalSince1970: 1_800_000_000)
         )
         let canonical = CanonicalDocumentLoader.loadMarkdown(draft.markdown)
         let prepared = try PublicationContentAdapter.prepare(document: canonical, host: .leaflet)
-        let record = ProtocolRecordBuilder().documentRecord(draft: draft, cover: nil, content: prepared.content)
+        let cover = ATProtoBlobRef(
+            type: "blob",
+            ref: .init(link: "bafkreileafletcover"),
+            mimeType: "image/jpeg",
+            size: 1_024
+        )
+        let record = ProtocolRecordBuilder().documentRecord(draft: draft, cover: cover, content: prepared.content)
+        #expect(record.tags == ["leaflet", "images"])
+        #expect(record.coverImage == cover)
         #expect(record.content?.objectValue?["$type"] == .string("pub.leaflet.content"))
         let pages = record.content?.objectValue?["pages"]?.arrayValue
         #expect(pages?.first?.objectValue?["$type"] == .string("pub.leaflet.pages.linearDocument"))
@@ -164,11 +281,13 @@ struct AppLogicTests {
         let document = CanonicalDocumentLoader.loadMarkdown("""
         ###### Deep heading
 
-        ```swift
+        ```Swift
         let answer = 42
         ```
 
         - [x] Shipped
+
+        **bold** *italic* `code` ~~removed~~ ++underlined++ [linked](https://example.com)
         """)
         let prepared = try PublicationContentAdapter.prepare(document: document, host: .offprint)
         let content = try #require(prepared.content.objectValue)
@@ -178,7 +297,61 @@ struct AppLogicTests {
         #expect(items[0].objectValue?["level"] == .integer(3))
         #expect(items[1].objectValue?["$type"] == .string("app.offprint.block.codeBlock"))
         #expect(items[1].objectValue?["code"] == .string("let answer = 42"))
+        #expect(items[1].objectValue?["language"] == .string("swift"))
         #expect(items[2].objectValue?["$type"] == .string("app.offprint.block.taskList"))
+        let facets = try #require(items[3].objectValue?["facets"]?.arrayValue)
+        let facetTypes = Set(facets.compactMap { $0.objectValue?["features"]?.arrayValue?.first?.objectValue?["$type"]?.stringValue })
+        #expect(facetTypes == [
+            "app.offprint.richtext.facet#bold",
+            "app.offprint.richtext.facet#italic",
+            "app.offprint.richtext.facet#code",
+            "app.offprint.richtext.facet#strikethrough",
+            "app.offprint.richtext.facet#underline",
+            "app.offprint.richtext.facet#link",
+        ])
+    }
+
+    @Test("Markpub adapter preserves the source Markdown in the standard content union")
+    func markpubContent() throws {
+        let markdown = """
+        # Markpub post
+
+        ~~Portable~~ **Markdown** with a fenced block:
+
+        ```swift
+        let answer = 42
+        ```
+        """
+        let document = CanonicalDocumentLoader.loadMarkdown(markdown)
+        let prepared = try PublicationContentAdapter.prepare(document: document, host: .markpub)
+        let content = try #require(prepared.content.objectValue)
+        let text = try #require(content["text"]?.objectValue)
+
+        #expect(prepared.host == .markpub)
+        #expect(content["$type"] == .string("at.markpub.markdown"))
+        #expect(content["flavor"] == .string("gfm"))
+        #expect(text["$type"] == .string("at.markpub.text"))
+        #expect(text["markdown"] == .string(markdown))
+        #expect(prepared.textContent.contains("Markpub post"))
+        #expect(prepared.offload == nil)
+
+        let largeMarkdown = String(repeating: "Portable Markdown. ", count: 7_000)
+        let large = CanonicalDocumentLoader.loadMarkdown(largeMarkdown)
+        let largePrepared = try PublicationContentAdapter.prepare(document: large, host: .markpub)
+        guard case .markpubMarkdown(let payload) = largePrepared.offload else {
+            Issue.record("Expected Markpub Markdown blob offload")
+            return
+        }
+        #expect(payload == Data(largeMarkdown.utf8))
+        #expect(largePrepared.offload?.mimeType == "text/markdown")
+        let blobContent = try #require(largePrepared.replacingOffload(with: ATProtoBlobRef(
+            type: "blob",
+            ref: ATProtoBlobRef.Link(link: "bafk-markdown"),
+            mimeType: "text/markdown",
+            size: payload.count
+        )).objectValue)
+        let blobText = try #require(blobContent["text"]?.objectValue)
+        #expect(blobText["textBlob"]?.objectValue?["mimeType"] == .string("text/markdown"))
     }
 
     @Test("pckt adapter uses blog namespace, recursive lists, and extended mode")
@@ -205,6 +378,153 @@ struct AppLogicTests {
             return
         }
         #expect(payload.count > 20_000)
+        #expect(largePrepared.offload?.mimeType == "application/json")
+    }
+
+    @Test("Body images and embeds map to each host's native content schema")
+    func bodyImageAndEmbedMapping() throws {
+        let assetID = try #require(UUID(uuidString: "d9428888-122b-11e1-b85c-61cd3cbb3210"))
+        let document = CanonicalDocumentLoader.loadMarkdown("""
+        ![Diagram](anypub-asset://\(assetID.uuidString))
+
+        @[embed](https://example.com/article)
+        """)
+        let image = PublishedBodyImage(
+            assetID: assetID,
+            blob: ATProtoBlobRef(
+                type: "blob",
+                ref: .init(link: "bafkreibodyimage"),
+                mimeType: "image/png",
+                size: 512
+            ),
+            alt: "Diagram",
+            width: 1200,
+            height: 630,
+            publicURL: "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aexample&cid=bafkreibodyimage"
+        )
+
+        let leaflet = try PublicationContentAdapter.prepare(document: document, host: .leaflet, images: [image])
+        let leafletBlocks = try #require(leaflet.content.objectValue?["pages"]?.arrayValue?.first?.objectValue?["blocks"]?.arrayValue)
+        let leafletImage = try #require(leafletBlocks[0].objectValue?["block"]?.objectValue)
+        #expect(leafletImage["$type"] == .string("pub.leaflet.blocks.image"))
+        #expect(leafletImage["image"]?.objectValue?["ref"]?.objectValue?["$link"] == .string("bafkreibodyimage"))
+        #expect(leafletImage["alt"] == .string("Diagram"))
+        #expect(leafletImage["aspectRatio"]?.objectValue?["width"] == .integer(1200))
+        #expect(leafletImage["aspectRatio"]?.objectValue?["height"] == .integer(630))
+        #expect(leafletBlocks[1].objectValue?["block"]?.objectValue?["$type"] == .string("pub.leaflet.blocks.website"))
+
+        let offprint = try PublicationContentAdapter.prepare(document: document, host: .offprint, images: [image])
+        let offprintItems = try #require(offprint.content.objectValue?["items"]?.arrayValue)
+        #expect(offprintItems[0].objectValue?["$type"] == .string("app.offprint.block.image"))
+        #expect(offprintItems[0].objectValue?["aspectRatio"]?.objectValue?["width"] == .integer(1200))
+        #expect(offprintItems[1].objectValue?["$type"] == .string("app.offprint.block.webEmbed"))
+
+        let pckt = try PublicationContentAdapter.prepare(document: document, host: .pckt, images: [image])
+        let pcktItems = try #require(pckt.content.objectValue?["items"]?.arrayValue)
+        #expect(pcktItems[0].objectValue?["$type"] == .string("blog.pckt.block.image"))
+        #expect(pcktItems[0].objectValue?["attrs"]?.objectValue?["src"] == .string("blob:bafkreibodyimage"))
+        #expect(pcktItems[1].objectValue?["$type"] == .string("blog.pckt.block.website"))
+
+        let markpub = try PublicationContentAdapter.prepare(document: document, host: .markpub, images: [image])
+        let markpubMarkdown = try #require(markpub.content.objectValue?["text"]?.objectValue?["markdown"]?.stringValue)
+        #expect(markpubMarkdown.contains(image.publicURL))
+        #expect(markpubMarkdown.contains("[https://example.com/article](https://example.com/article)"))
+        #expect(!markpubMarkdown.contains("anypub-asset://"))
+        #expect(!markpubMarkdown.contains("@[embed]"))
+    }
+
+    @Test("pckt content maps Markdown blocks and inline tags to native extensions")
+    func pcktMarkdownMapping() throws {
+        let document = CanonicalDocumentLoader.loadMarkdown("""
+        ## Heading
+
+        > Quoted **bold** text
+
+        - [x] Finished
+        - [ ] Pending
+
+        3. Third
+          - Nested
+
+        ```swift
+        let answer = 42
+        ```
+
+        ---
+
+        **bold** *italic* `code` ~~removed~~ ++underlined++ [linked](https://example.com)
+        """)
+        let prepared = try PublicationContentAdapter.prepare(
+            document: document,
+            host: .pckt,
+            description: "Article summary"
+        )
+        let content = try #require(prepared.content.objectValue)
+        let items = try #require(content["items"]?.arrayValue)
+
+        #expect(items.map { $0.objectValue?["$type"] } == [
+            .string("blog.pckt.block.heading"),
+            .string("blog.pckt.block.heading"),
+            .string("blog.pckt.block.blockquote"),
+            .string("blog.pckt.block.taskList"),
+            .string("blog.pckt.block.orderedList"),
+            .string("blog.pckt.block.codeBlock"),
+            .string("blog.pckt.block.horizontalRule"),
+            .string("blog.pckt.block.text"),
+        ])
+        #expect(items[0].objectValue?["level"] == .integer(3))
+        #expect(items[0].objectValue?["plaintext"] == .string("Article summary"))
+        #expect(items[1].objectValue?["level"] == .integer(2))
+        #expect(items[3].objectValue?["content"]?.arrayValue?.map { $0.objectValue?["checked"] } == [.bool(true), .bool(false)])
+        #expect(items[4].objectValue?["start"] == .integer(3))
+        let orderedItemContent = items[4].objectValue?["content"]?.arrayValue?.first?.objectValue?["content"]?.arrayValue
+        #expect(orderedItemContent?.last?.objectValue?["$type"] == .string("blog.pckt.block.bulletList"))
+        #expect(items[5].objectValue?["language"] == .string("swift"))
+        #expect(items[5].objectValue?["plaintext"] == .string("let answer = 42"))
+        #expect(prepared.textContent.hasPrefix("Article summary\nHeading"))
+
+        let inline = try #require(items.last?.objectValue)
+        let featureTypes = inline["facets"]?.arrayValue?.compactMap {
+            $0.objectValue?["features"]?.arrayValue?.first?.objectValue?["$type"]?.stringValue
+        }
+        #expect(featureTypes == [
+            "blog.pckt.richtext.facet#bold",
+            "blog.pckt.richtext.facet#italic",
+            "blog.pckt.richtext.facet#code",
+            "blog.pckt.richtext.facet#strikethrough",
+            "blog.pckt.richtext.facet#underline",
+            "blog.pckt.richtext.facet#link",
+        ])
+        let link = inline["facets"]?.arrayValue?.last?.objectValue?["features"]?.arrayValue?.first?.objectValue
+        #expect(link?["uri"] == .string("https://example.com"))
+    }
+
+    @Test("pckt content does not duplicate a description already in the body")
+    func pcktDescriptionDeduplication() throws {
+        let textDocument = CanonicalDocumentLoader.loadMarkdown("Summary")
+        let textPrepared = try PublicationContentAdapter.prepare(
+            document: textDocument,
+            host: .pckt,
+            description: "Summary"
+        )
+        let textItems = try #require(textPrepared.content.objectValue?["items"]?.arrayValue)
+        #expect(textItems.count == 1)
+        #expect(textPrepared.textContent == "Summary")
+    }
+
+    @Test("pckt content mirrors the native trailing text-block envelope")
+    func pcktTrailingTextBlock() throws {
+        let document = CanonicalDocumentLoader.loadMarkdown("- Final item")
+        let prepared = try PublicationContentAdapter.prepare(
+            document: document,
+            host: .pckt,
+            description: "Summary"
+        )
+        let items = try #require(prepared.content.objectValue?["items"]?.arrayValue)
+        #expect(items.first?.objectValue?["plaintext"] == .string("Summary"))
+        #expect(items.last?.objectValue?["$type"] == .string("blog.pckt.block.text"))
+        #expect(items.last?.objectValue?["plaintext"] == .string(""))
+        #expect(prepared.textContent == "Summary\nFinal item")
     }
 
     @Test("Facet byte offsets are calculated from UTF-8 plaintext")
@@ -246,6 +566,58 @@ struct AppLogicTests {
         #expect(payload["htu"] as? String == "https://pds.example/xrpc/com.atproto.repo.createRecord")
         #expect(payload["nonce"] as? String == "server-nonce")
         #expect(payload["ath"] != nil)
+    }
+
+    @Test("Authenticated record writes reuse the OAuth nonce for the same PDS origin")
+    func dpopOAuthNonceReuse() async throws {
+        let did = "did:plc:dpop-nonce-reuse"
+        let pdsURL = "https://pds.example"
+        let nonceKey = dpopNonceKey(accountDID: did, serverURL: pdsURL)
+        await dpopNonces.remove(for: nonceKey)
+        await dpopNonces.set("oauth-response-nonce", for: nonceKey)
+
+        try await withApp(configure: configure) { app in
+            let encryption = TokenEncryption(secret: nil)
+            let account = LinkedAccount(
+                did: did,
+                handle: "writer.example",
+                pdsURL: pdsURL,
+                scope: "atproto include:site.standard.authFull",
+                accessToken: try encryption.seal("access-token"),
+                refreshToken: try encryption.seal("refresh-token"),
+                tokenEndpoint: "https://pds.example/oauth/token",
+                dpopKeyJSON: try encryption.seal(DPoPKey().exportJSON())
+            )
+            let client = RecordingDPoPClient(eventLoop: app.eventLoopGroup.next())
+            let record = StandardSiteDocumentRecord(
+                site: "at://\(did)/site.standard.publication/test",
+                title: "Nonce test",
+                publishedAt: ATProtoTimestamp(Date(timeIntervalSince1970: 1_800_000_000)),
+                path: "/nonce-test",
+                tags: nil,
+                langs: nil,
+                coverImage: nil,
+                description: nil,
+                textContent: "Body",
+                content: nil,
+                updatedAt: nil
+            )
+
+            _ = try await ATProtoXRPCClient().createDocument(
+                account: account,
+                tokenEncryption: encryption,
+                database: app.db,
+                record: record,
+                client: client
+            )
+
+            let proof = try #require(client.proofs().first)
+            let parts = proof.split(separator: ".")
+            let payload = try decodeJWTPart(String(parts[1]))
+            #expect(payload["nonce"] as? String == "oauth-response-nonce")
+            #expect(sameDPoPServer("https://PDS.example/oauth/token", "https://pds.example/xrpc/com.atproto.repo.createRecord"))
+        }
+        await dpopNonces.remove(for: nonceKey)
     }
 
     @Test("Calendar event links article URL and AT URI")
@@ -372,6 +744,138 @@ struct AppLogicTests {
         }
     }
 
+    @Test("Unpublishing retains record identities for an in-place republish")
+    func editAndUnpublishPublishedPost() async throws {
+        try await withApp(configure: configure) { app in
+            let did = "did:plc:unpublish"
+            let encryption = TokenEncryption(secret: nil)
+            let client = RecordingDeletionClient(eventLoop: app.eventLoopGroup.next())
+            app.clients.use { _ in client }
+
+            let account = LinkedAccount(
+                did: did,
+                handle: "unpublish.example",
+                pdsURL: "https://pds.example",
+                scope: "atproto include:site.standard.authFull include:blog.pckt.authFull include:community.lexicon.calendar.authFull",
+                accessToken: try encryption.seal("access-token"),
+                refreshToken: try encryption.seal("refresh-token"),
+                tokenEndpoint: "https://pds.example/oauth/token",
+                dpopKeyJSON: try encryption.seal(DPoPKey().exportJSON())
+            )
+            try await account.save(on: app.db)
+
+            let draft = try Draft(
+                accountDID: did,
+                publicationURI: "at://\(did)/site.standard.publication/publication",
+                publicationURL: "https://example.pckt.blog",
+                title: "Published article",
+                path: "/published-article",
+                excerpt: "Published summary",
+                tags: [],
+                markdown: "Published body",
+                status: .published,
+                publishedAt: Date(timeIntervalSince1970: 1_800_000_000)
+            )
+            draft.documentURI = "at://\(did)/site.standard.document/document"
+            draft.documentCID = "bafydocument"
+            draft.platformDocumentURI = "at://\(did)/blog.pckt.document/document"
+            draft.platformDocumentCID = "bafywrapper"
+            try await draft.save(on: app.db)
+            let draftID = try #require(draft.id)
+            try await CalendarEventLink(
+                draftID: draftID,
+                eventURI: "at://\(did)/community.lexicon.calendar.event/event",
+                eventCID: "bafyevent"
+            ).save(on: app.db)
+
+            let edit = UpsertDraftRequest(
+                accountDID: did,
+                publicationURI: draft.publicationURI,
+                publicationURL: draft.publicationURL,
+                title: "Edited published article",
+                path: draft.path,
+                excerpt: draft.excerpt,
+                tags: [],
+                markdown: "Edited published body",
+                coverAssetID: nil
+            )
+            try await app.testing().test(.PUT, "/api/drafts/\(draftID)") { request in
+                try request.content.encode(edit)
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+            }
+            let edited = try #require(await Draft.find(draftID, on: app.db))
+            #expect(edited.typedStatus == .published)
+            #expect(edited.documentURI == draft.documentURI)
+            #expect(edited.title == "Edited published article")
+
+            try await app.testing().test(.POST, "/api/drafts/\(draftID)/unpublish") { response in
+                #expect(response.status == .ok)
+            }
+
+            let unpublished = try #require(await Draft.find(draftID, on: app.db))
+            #expect(unpublished.typedStatus == .draft)
+            #expect(unpublished.title == "Edited published article")
+            #expect(unpublished.documentURI == nil)
+            #expect(unpublished.documentCID == nil)
+            #expect(unpublished.platformDocumentURI == nil)
+            #expect(unpublished.platformDocumentCID == nil)
+            #expect(unpublished.retainedDocumentURI == draft.documentURI)
+            #expect(unpublished.retainedPlatformDocumentURI == draft.platformDocumentURI)
+            #expect(unpublished.documentURIForPublishing == draft.documentURI)
+            #expect(unpublished.platformDocumentURIForPublishing == draft.platformDocumentURI)
+            #expect(unpublished.publishedAt == nil)
+            #expect(try await CalendarEventLink.query(on: app.db).filter(\.$draftID, .equal, draftID).count() == 0)
+            #expect(client.deletedCollections() == [
+                "community.lexicon.calendar.event",
+                "blog.pckt.document",
+                "site.standard.document",
+            ])
+        }
+    }
+
+    @Test("Changing publication discards an unpublished record identity")
+    func changingPublicationDiscardsRetainedIdentity() async throws {
+        try await withApp(configure: configure) { app in
+            let did = "did:plc:retained-identity"
+            let draft = try Draft(
+                accountDID: did,
+                publicationURI: "at://\(did)/site.standard.publication/old",
+                publicationURL: "https://old.example",
+                title: "Moved article",
+                path: "/moved-article",
+                excerpt: nil,
+                tags: [],
+                markdown: "Body"
+            )
+            draft.retainedDocumentURI = "at://\(did)/site.standard.document/document"
+            draft.retainedPlatformDocumentURI = "at://\(did)/app.offprint.document.article/wrapper"
+            try await draft.save(on: app.db)
+            let draftID = try #require(draft.id)
+
+            let edit = UpsertDraftRequest(
+                accountDID: did,
+                publicationURI: "at://\(did)/site.standard.publication/new",
+                publicationURL: "https://new.example",
+                title: draft.title,
+                path: draft.path,
+                excerpt: draft.excerpt,
+                tags: [],
+                markdown: draft.markdown,
+                coverAssetID: nil
+            )
+            try await app.testing().test(.PUT, "/api/drafts/\(draftID)") { request in
+                try request.content.encode(edit)
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+            }
+
+            let moved = try #require(await Draft.find(draftID, on: app.db))
+            #expect(moved.retainedDocumentURI == nil)
+            #expect(moved.retainedPlatformDocumentURI == nil)
+        }
+    }
+
     @Test("App config separates API and web origins")
     func appConfigSeparatesAPIAndWebOrigins() {
         let config = AppConfig.load(environment: [
@@ -441,6 +945,115 @@ struct AppLogicTests {
             #expect(try await SchedulerRun.query(on: app.db).count() == 1)
         }
     }
+}
+
+private final class RecordingDPoPClient: Client, @unchecked Sendable {
+    let eventLoop: any EventLoop
+    private let lock = NSLock()
+    private var recordedProofs: [String] = []
+
+    init(eventLoop: any EventLoop) {
+        self.eventLoop = eventLoop
+    }
+
+    func delegating(to eventLoop: any EventLoop) -> any Client {
+        self
+    }
+
+    func send(_ request: ClientRequest) -> EventLoopFuture<ClientResponse> {
+        guard request.method == .POST,
+              let proof = request.headers.first(name: "DPoP")
+        else {
+            return eventLoop.makeFailedFuture(RecordingDPoPClientError.invalidRequest)
+        }
+        lock.lock()
+        recordedProofs.append(proof)
+        lock.unlock()
+
+        var body = ByteBuffer()
+        body.writeString("""
+        {"uri":"at://did:plc:dpop-nonce-reuse/site.standard.document/3mtest","cid":"bafytest"}
+        """)
+        return eventLoop.makeSucceededFuture(ClientResponse(
+            status: .ok,
+            headers: [
+                "content-type": "application/json",
+                "DPoP-Nonce": "next-resource-nonce",
+            ],
+            body: body
+        ))
+    }
+
+    func proofs() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedProofs
+    }
+}
+
+private final class RecordingDeletionClient: Client, @unchecked Sendable {
+    let eventLoop: any EventLoop
+    private let lock = NSLock()
+    private var collections: [String] = []
+
+    init(eventLoop: any EventLoop) {
+        self.eventLoop = eventLoop
+    }
+
+    func delegating(to eventLoop: any EventLoop) -> any Client {
+        self
+    }
+
+    func send(_ request: ClientRequest) -> EventLoopFuture<ClientResponse> {
+        if request.method == .GET,
+           request.url.string.contains("com.atproto.sync.getLatestCommit") {
+            var body = ByteBuffer()
+            body.writeString(#"{"cid":"bafyreirepohead","rev":"3mrevision"}"#)
+            return eventLoop.makeSucceededFuture(ClientResponse(
+                status: .ok,
+                headers: ["content-type": "application/json"],
+                body: body
+            ))
+        }
+
+        guard request.method == .POST,
+              let body = request.body,
+              let json = body.getString(at: body.readerIndex, length: body.readableBytes),
+              let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return eventLoop.makeFailedFuture(RecordingDPoPClientError.invalidRequest) }
+
+        let nextCollections: [String]
+        if request.url.string.contains("com.atproto.repo.deleteRecord"),
+           let collection = object["collection"] as? String {
+            nextCollections = [collection]
+        } else if request.url.string.contains("com.atproto.repo.applyWrites"),
+                  let writes = object["writes"] as? [[String: Any]] {
+            nextCollections = writes.compactMap { $0["collection"] as? String }
+        } else {
+            return eventLoop.makeFailedFuture(RecordingDPoPClientError.invalidRequest)
+        }
+        lock.lock()
+        collections.append(contentsOf: nextCollections)
+        lock.unlock()
+        var responseBody = ByteBuffer()
+        responseBody.writeString("{}")
+        return eventLoop.makeSucceededFuture(ClientResponse(
+            status: .ok,
+            headers: ["content-type": "application/json", "DPoP-Nonce": "deletion-nonce"],
+            body: responseBody
+        ))
+    }
+
+    func deletedCollections() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return collections
+    }
+}
+
+private enum RecordingDPoPClientError: Error {
+    case invalidRequest
 }
 
 private func decodeJWTPart(_ value: String) throws -> [String: Any] {

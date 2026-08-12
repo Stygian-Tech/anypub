@@ -52,6 +52,10 @@ export function publishDraft(draftID: string) {
   }>(`/api/drafts/${draftID}/publish`, { method: "POST" });
 }
 
+export function unpublishDraft(draftID: string) {
+  return apiFetch<Draft>(`/api/drafts/${draftID}/unpublish`, { method: "POST" });
+}
+
 export function syncPublications(accountDID: string) {
   return apiFetch<Publication[]>("/api/publications/sync", {
     method: "POST",

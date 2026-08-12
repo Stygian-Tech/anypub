@@ -30,6 +30,12 @@ final class CoverAsset: Model, Content, @unchecked Sendable {
     @OptionalField(key: "alt_text")
     var altText: String?
 
+    @OptionalField(key: "width")
+    var width: Int?
+
+    @OptionalField(key: "height")
+    var height: Int?
+
     @OptionalField(key: "attribution_json")
     var attributionJSON: String?
 
@@ -49,6 +55,8 @@ final class CoverAsset: Model, Content, @unchecked Sendable {
         mimeType: String,
         byteSize: Int,
         altText: String?,
+        width: Int? = nil,
+        height: Int? = nil,
         attributionJSON: String?,
         blobJSON: String? = nil,
         createdAt: Date = Date()
@@ -60,6 +68,8 @@ final class CoverAsset: Model, Content, @unchecked Sendable {
         self.mimeType = mimeType
         self.byteSize = byteSize
         self.altText = altText
+        self.width = width
+        self.height = height
         self.attributionJSON = attributionJSON
         self.blobJSON = blobJSON
         self.createdAt = createdAt

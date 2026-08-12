@@ -3,12 +3,21 @@ import Vapor
 
 enum PublicationContentOffload: Equatable, Sendable {
     case leafletPages(Data)
+    case markpubMarkdown(Data)
     case pcktItems(Data)
+
+    var mimeType: String {
+        switch self {
+        case .leafletPages, .pcktItems: "application/json"
+        case .markpubMarkdown: "text/markdown"
+        }
+    }
 }
 
 struct PreparedPublicationContent: Equatable, Sendable {
     let host: PublicationHost
     let content: JSONValue
+    let textContent: String
     let offload: PublicationContentOffload?
 
     func replacingOffload(with blob: ATProtoBlobRef) -> JSONValue {
@@ -21,6 +30,17 @@ struct PreparedPublicationContent: Equatable, Sendable {
                 "blobPages": blob.jsonValue,
                 "blobs": .array([]),
             ])
+        case .markpubMarkdown(let data):
+            let markdown = String(decoding: data, as: UTF8.self)
+            return .object([
+                "$type": .string("at.markpub.markdown"),
+                "flavor": .string("gfm"),
+                "text": .object([
+                    "$type": .string("at.markpub.text"),
+                    "markdown": .string(String(markdown.prefix(1_000))),
+                    "textBlob": blob.jsonValue,
+                ]),
+            ])
         case .pcktItems:
             return .object([
                 "$type": .string("blog.pckt.content"),
@@ -31,19 +51,74 @@ struct PreparedPublicationContent: Equatable, Sendable {
     }
 }
 
+struct PublishedBodyImage: Equatable, Sendable {
+    let assetID: UUID
+    let blob: ATProtoBlobRef
+    let alt: String
+    let width: Int
+    let height: Int
+    let publicURL: String
+}
+
 enum PublicationContentAdapter {
-    static func prepare(document: CanonicalDocument, host: PublicationHost) throws -> PreparedPublicationContent {
+    static func prepare(
+        document: CanonicalDocument,
+        host: PublicationHost,
+        description: String? = nil,
+        images: [PublishedBodyImage] = []
+    ) throws -> PreparedPublicationContent {
+        let imageMap = Dictionary(uniqueKeysWithValues: images.map { ($0.assetID, $0) })
+        let requiredImageIDs = Set(document.blocks.compactMap { block -> UUID? in
+            if case .image(let assetID, _) = block { return assetID }
+            return nil
+        })
+        guard requiredImageIDs.isSubset(of: Set(imageMap.keys)) else {
+            throw Abort(.unprocessableEntity, reason: "One or more body images are unavailable")
+        }
         switch host {
-        case .leaflet: return try LeafletContentAdapter.prepare(document)
-        case .offprint: return try OffprintContentAdapter.prepare(document)
-        case .pckt: return try PcktContentAdapter.prepare(document)
+        case .leaflet: return try LeafletContentAdapter.prepare(document, images: imageMap)
+        case .markpub: return try MarkpubContentAdapter.prepare(document, images: imageMap)
+        case .offprint: return try OffprintContentAdapter.prepare(document, images: imageMap)
+        case .pckt: return try PcktContentAdapter.prepare(document, description: description, images: imageMap)
         }
     }
 }
 
+private enum MarkpubContentAdapter {
+    static func prepare(_ document: CanonicalDocument, images: [UUID: PublishedBodyImage]) throws -> PreparedPublicationContent {
+        var markdown = document.markdown
+        for image in images.values {
+            markdown = markdown.replacingOccurrences(of: "anypub-asset://\(image.assetID.uuidString)", with: image.publicURL)
+        }
+        markdown = markdown.replacingOccurrences(
+            of: #"@\[embed\]\((https?://[^\s)]+)\)"#,
+            with: "[$1]($1)",
+            options: .regularExpression
+        )
+        let data = Data(markdown.utf8)
+        guard data.count <= 1_000_000 else {
+            throw Abort(.unprocessableEntity, reason: "Article exceeds Markpub's Markdown blob-size limit")
+        }
+        let content: JSONValue = .object([
+            "$type": .string("at.markpub.markdown"),
+            "flavor": .string("gfm"),
+            "text": .object([
+                "$type": .string("at.markpub.text"),
+                "markdown": .string(markdown),
+            ]),
+        ])
+        return PreparedPublicationContent(
+            host: .markpub,
+            content: content,
+            textContent: document.plaintext,
+            offload: data.count > 100 * 1_024 ? .markpubMarkdown(data) : nil
+        )
+    }
+}
+
 private enum LeafletContentAdapter {
-    static func prepare(_ document: CanonicalDocument) throws -> PreparedPublicationContent {
-        let blocks = document.blocks.map(block)
+    static func prepare(_ document: CanonicalDocument, images: [UUID: PublishedBodyImage]) throws -> PreparedPublicationContent {
+        let blocks = document.blocks.map { block($0, images: images) }
         let pages: JSONValue = .array([
             .object([
                 "$type": .string("pub.leaflet.pages.linearDocument"),
@@ -63,11 +138,12 @@ private enum LeafletContentAdapter {
         return PreparedPublicationContent(
             host: .leaflet,
             content: content,
+            textContent: document.plaintext,
             offload: data.count > 100 * 1_024 ? .leafletPages(data) : nil
         )
     }
 
-    private static func block(_ block: CanonicalBlock) -> JSONValue {
+    private static func block(_ block: CanonicalBlock, images: [UUID: PublishedBodyImage]) -> JSONValue {
         switch block {
         case .paragraph(let text):
             return richText(text, type: "pub.leaflet.blocks.text", facetNSID: "pub.leaflet.richtext.facet")
@@ -79,8 +155,22 @@ private enum LeafletContentAdapter {
             return listBlock(list)
         case .code(let language, let source):
             var object: [String: JSONValue] = ["$type": .string("pub.leaflet.blocks.code"), "plaintext": .string(source)]
-            if let language, !language.isEmpty { object["language"] = .string(language) }
+            if let language = normalizedCodeLanguage(language) { object["language"] = .string(language) }
             return .object(object)
+        case .image(let assetID, let alt):
+            guard let image = images[assetID] else { return richText(RichText(plaintext: alt, spans: []), type: "pub.leaflet.blocks.text", facetNSID: "pub.leaflet.richtext.facet") }
+            return .object([
+                "$type": .string("pub.leaflet.blocks.image"),
+                "image": image.blob.jsonValue,
+                "alt": .string(alt),
+                "aspectRatio": aspectRatio(image),
+            ])
+        case .embed(let url):
+            return .object([
+                "$type": .string("pub.leaflet.blocks.website"),
+                "src": .string(url),
+                "title": .string(url),
+            ])
         case .thematicBreak:
             return .object(["$type": .string("pub.leaflet.blocks.horizontalRule")])
         }
@@ -124,8 +214,8 @@ private enum LeafletContentAdapter {
 }
 
 private enum OffprintContentAdapter {
-    static func prepare(_ document: CanonicalDocument) throws -> PreparedPublicationContent {
-        let items = document.blocks.map(block)
+    static func prepare(_ document: CanonicalDocument, images: [UUID: PublishedBodyImage]) throws -> PreparedPublicationContent {
+        let items = document.blocks.map { block($0, images: images) }
         let content: JSONValue = .object([
             "$type": .string("app.offprint.content"),
             "items": .array(items),
@@ -133,10 +223,15 @@ private enum OffprintContentAdapter {
         guard try JSONEncoder().encode(content).count < 900_000 else {
             throw Abort(.unprocessableEntity, reason: "Article exceeds Offprint's record-size limit")
         }
-        return PreparedPublicationContent(host: .offprint, content: content, offload: nil)
+        return PreparedPublicationContent(
+            host: .offprint,
+            content: content,
+            textContent: document.plaintext,
+            offload: nil
+        )
     }
 
-    private static func block(_ block: CanonicalBlock) -> JSONValue {
+    private static func block(_ block: CanonicalBlock, images: [UUID: PublishedBodyImage]) -> JSONValue {
         switch block {
         case .paragraph(let text):
             return richText(text, type: "app.offprint.block.text", facetNSID: "app.offprint.richtext.facet")
@@ -151,8 +246,26 @@ private enum OffprintContentAdapter {
             return listBlock(list)
         case .code(let language, let source):
             var object: [String: JSONValue] = ["$type": .string("app.offprint.block.codeBlock"), "code": .string(source)]
-            if let language, !language.isEmpty { object["language"] = .string(language) }
+            if let language = normalizedCodeLanguage(language) { object["language"] = .string(language) }
             return .object(object)
+        case .image(let assetID, let alt):
+            guard let image = images[assetID] else { return richText(RichText(plaintext: alt, spans: []), type: "app.offprint.block.text", facetNSID: "app.offprint.richtext.facet") }
+            return .object([
+                "$type": .string("app.offprint.block.image"),
+                "image": image.blob.jsonValue,
+                "alt": .string(alt),
+                "width": .string("100%"),
+                "alignment": .string("center"),
+                "aspectRatio": aspectRatio(image),
+            ])
+        case .embed(let url):
+            return .object([
+                "$type": .string("app.offprint.block.webEmbed"),
+                "href": .string(url),
+                "title": .string(url),
+                "width": .string("100%"),
+                "alignment": .string("center"),
+            ])
         case .thematicBreak:
             return .object(["$type": .string("app.offprint.block.horizontalRule")])
         }
@@ -196,21 +309,53 @@ private enum OffprintContentAdapter {
 }
 
 private enum PcktContentAdapter {
-    static func prepare(_ document: CanonicalDocument) throws -> PreparedPublicationContent {
-        let items: JSONValue = .array(document.blocks.map(block))
+    static func prepare(_ document: CanonicalDocument, description: String?, images: [UUID: PublishedBodyImage]) throws -> PreparedPublicationContent {
+        var blocks = document.blocks
+        let summary = description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let insertsSummary = !summary.isEmpty && firstPlaintext(in: blocks) != summary
+        if insertsSummary {
+            blocks.insert(.heading(level: 3, content: RichText(plaintext: summary, spans: [])), at: 0)
+        }
+        if !endsInTextBlock(blocks) {
+            blocks.append(.paragraph(RichText(plaintext: "", spans: [])))
+        }
+        let items: JSONValue = .array(blocks.map { block($0, images: images) })
         let content: JSONValue = .object([
             "$type": .string("blog.pckt.content"),
             "items": items,
         ])
         let data = try JSONEncoder().encode(items)
+        let textContent = ([insertsSummary ? summary : "", document.plaintext])
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
         return PreparedPublicationContent(
             host: .pckt,
             content: content,
+            textContent: textContent,
             offload: data.count > 20_000 ? .pcktItems(data) : nil
         )
     }
 
-    private static func block(_ block: CanonicalBlock) -> JSONValue {
+    private static func firstPlaintext(in blocks: [CanonicalBlock]) -> String? {
+        guard let first = blocks.first else { return nil }
+        switch first {
+        case .paragraph(let text), .heading(_, let text): return text.plaintext
+        case .quote(let lines): return lines.first?.plaintext
+        case .list(let list): return list.items.first?.content.plaintext
+        case .code(_, let source): return source
+        case .image(_, let alt): return alt
+        case .embed(let url): return url
+        case .thematicBreak: return nil
+        }
+    }
+
+    private static func endsInTextBlock(_ blocks: [CanonicalBlock]) -> Bool {
+        guard let last = blocks.last else { return false }
+        if case .paragraph = last { return true }
+        return false
+    }
+
+    private static func block(_ block: CanonicalBlock, images: [UUID: PublishedBodyImage]) -> JSONValue {
         switch block {
         case .paragraph(let text):
             return richText(text, type: "blog.pckt.block.text", facetNSID: "blog.pckt.richtext.facet")
@@ -225,10 +370,28 @@ private enum PcktContentAdapter {
             return listBlock(list)
         case .code(let language, let source):
             var object: [String: JSONValue] = ["$type": .string("blog.pckt.block.codeBlock"), "plaintext": .string(source)]
-            if let language, !language.isEmpty {
+            if let language = normalizedCodeLanguage(language) {
                 object["language"] = .string(String(decoding: language.utf8.prefix(50), as: UTF8.self))
             }
             return .object(object)
+        case .image(let assetID, let alt):
+            guard let image = images[assetID] else { return richText(RichText(plaintext: alt, spans: []), type: "blog.pckt.block.text", facetNSID: "blog.pckt.richtext.facet") }
+            return .object([
+                "$type": .string("blog.pckt.block.image"),
+                "attrs": .object([
+                    "src": .string("blob:\(image.blob.ref.link)"),
+                    "blob": image.blob.jsonValue,
+                    "alt": .string(alt),
+                    "align": .string("center"),
+                    "aspectRatio": aspectRatio(image),
+                ]),
+            ])
+        case .embed(let url):
+            return .object([
+                "$type": .string("blog.pckt.block.website"),
+                "src": .string(url),
+                "title": .string(url),
+            ])
         case .thematicBreak:
             return .object(["$type": .string("blog.pckt.block.horizontalRule")])
         }
@@ -269,6 +432,18 @@ private enum PcktContentAdapter {
     }
 }
 
+private func aspectRatio(_ image: PublishedBodyImage) -> JSONValue {
+    .object([
+        "width": .integer(max(1, image.width)),
+        "height": .integer(max(1, image.height)),
+    ])
+}
+
+private func normalizedCodeLanguage(_ language: String?) -> String? {
+    let normalized = language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    return normalized.isEmpty ? nil : normalized
+}
+
 private func richText(
     _ text: RichText,
     type: String,
@@ -291,6 +466,7 @@ private func facet(_ span: InlineSpan, nsid: String) -> JSONValue? {
     case .italic: feature = ["$type": .string("\(nsid)#italic")]
     case .code: feature = ["$type": .string("\(nsid)#code")]
     case .strikethrough: feature = ["$type": .string("\(nsid)#strikethrough")]
+    case .underline: feature = ["$type": .string("\(nsid)#underline")]
     case .link(let uri): feature = ["$type": .string("\(nsid)#link"), "uri": .string(uri)]
     }
     return .object([

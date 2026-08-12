@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadAccounts, startOAuth } from "@/lib/oauth-api";
+import { loadAccounts, startOAuth, unlinkAccount } from "@/lib/oauth-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -46,6 +46,18 @@ describe("OAuth API", () => {
           redirectURL: "http://localhost:3000/",
         }),
       }),
+    );
+  });
+
+  it("unlinks the active account", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await unlinkAccount("did:plc:writer");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8080/api/accounts/did%3Aplc%3Awriter",
+      expect.objectContaining({ method: "DELETE", credentials: "include" }),
     );
   });
 });

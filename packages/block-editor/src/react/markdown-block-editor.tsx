@@ -15,6 +15,7 @@ import {
   parseMarkdownBlock,
   parseMarkdownBlocks,
   setMarkdownBlockListLevel,
+  shouldInsertCodeBlockSoftBreak,
   splitMarkdownBlockAtCursor,
   type MarkdownBlock,
   type BlockDocument,
@@ -31,39 +32,58 @@ import {
   reindexAfterMove,
 } from "./block-drag";
 
-export function BlockEditor({
-  document,
-  invalid = false,
-  onChange,
-}: {
+export type BlockEditorHandle = {
+  insertBlock: (markdown: string, atIndex?: number) => void;
+};
+
+type ImageFilesHandler = (files: File[], insertionIndex: number) => void | Promise<void>;
+
+export const BlockEditor = React.forwardRef<BlockEditorHandle, {
   document: BlockDocument;
   invalid?: boolean;
   onChange: (document: BlockDocument) => void;
-}) {
+  resolveAssetURL?: (assetID: string) => string;
+  onImageFiles?: ImageFilesHandler;
+}>(function BlockEditor({
+  document,
+  invalid = false,
+  onChange,
+  resolveAssetURL,
+  onImageFiles,
+}, ref) {
   return (
     <MarkdownBlockEditor
+      ref={ref}
       value={document.markdown}
       invalid={invalid}
+      resolveAssetURL={resolveAssetURL}
+      onImageFiles={onImageFiles}
       onChange={(markdown) => onChange(reviseMarkdownDocument(document, markdown))}
     />
   );
-}
+});
 
-export function MarkdownBlockEditor({
-  value,
-  invalid,
-  onChange,
-}: {
+export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
   value: string;
   invalid: boolean;
   onChange: (markdown: string) => void;
-}) {
+  resolveAssetURL?: (assetID: string) => string;
+  onImageFiles?: ImageFilesHandler;
+}>(function MarkdownBlockEditor({
+  value,
+  invalid,
+  onChange,
+  resolveAssetURL,
+  onImageFiles,
+}, ref) {
   const [blocks, setBlocks] = React.useState(() => parseMarkdownBlocks(value));
   const [activeBlockIndex, setActiveBlockIndex] = React.useState<number | null>(null);
   const [draggedBlockIndex, setDraggedBlockIndex] = React.useState<number | null>(null);
   const [dragInsertionIndex, setDragInsertionIndex] = React.useState<number | null>(null);
   const [dragTargetListLevel, setDragTargetListLevel] = React.useState(0);
   const [pendingCaret, setPendingCaret] = React.useState<number | null>(null);
+  const [imageDragActive, setImageDragActive] = React.useState(false);
+  const editorRef = React.useRef<HTMLDivElement>(null);
   const dragStateRef = React.useRef<{
     fromIndex: number;
     insertionIndex: number | null;
@@ -116,6 +136,44 @@ export function MarkdownBlockEditor({
     setBlocks(nextBlocks);
     onChange(joinMarkdownBlocks(nextBlocks));
     setActiveBlockIndex(insertAt);
+  }
+
+  React.useImperativeHandle(ref, () => ({
+    insertBlock(markdown: string, atIndex?: number) {
+      const compactedBlocks = compactMarkdownBlocks(blocks);
+      const insertAt = atIndex === undefined
+        ? activeBlockIndex === null ? compactedBlocks.length : Math.min(activeBlockIndex + 1, compactedBlocks.length)
+        : Math.max(0, Math.min(atIndex, compactedBlocks.length));
+      const nextBlocks = [...compactedBlocks];
+      nextBlocks.splice(insertAt, 0, parseMarkdownBlock(markdown));
+      setBlocks(nextBlocks);
+      onChange(joinMarkdownBlocks(nextBlocks));
+      setActiveBlockIndex(null);
+    },
+  }), [activeBlockIndex, blocks, onChange]);
+
+  function imageFilesFromTransfer(transfer: DataTransfer | null) {
+    return Array.from(transfer?.files ?? []).filter((file) => file.type.startsWith("image/"));
+  }
+
+  function hasImageTransfer(transfer: DataTransfer | null) {
+    return imageFilesFromTransfer(transfer).length > 0 || Array.from(transfer?.items ?? []).some(
+      (item) => item.kind === "file" && item.type.startsWith("image/"),
+    );
+  }
+
+  function imageInsertionIndex(clientY?: number) {
+    const editor = editorRef.current;
+    if (!editor || clientY === undefined) {
+      return activeBlockIndex === null ? blocks.length : Math.min(activeBlockIndex + 1, blocks.length);
+    }
+
+    const rows = Array.from(editor.querySelectorAll<HTMLElement>("[data-block-index]"));
+    const nextRow = rows.find((row) => {
+      const bounds = row.getBoundingClientRect();
+      return clientY < bounds.top + bounds.height / 2;
+    });
+    return nextRow ? Number(nextRow.dataset.blockIndex) : rows.length;
   }
 
   function updateBlock(index: number, nextValue: string) {
@@ -368,7 +426,51 @@ export function MarkdownBlockEditor({
   return (
     <Field data-invalid={invalid} className="min-h-0 flex-1">
       <label data-slot="field-label" htmlFor="markdown-block-0" className="text-sm font-medium leading-none sr-only">Markdown</label>
-      <div data-testid="markdown-block-editor" className="flex min-h-[64vh] flex-1 flex-col px-0 py-4">
+      <div
+        ref={editorRef}
+        data-testid="markdown-block-editor"
+        data-image-drag-active={imageDragActive ? "true" : undefined}
+        className={cn(
+          "relative flex min-h-[64vh] flex-1 flex-col px-0 py-4 transition-colors",
+          imageDragActive && "bg-accent/40 ring-primary/40 ring-2 ring-inset",
+        )}
+        onDragEnter={(event) => {
+          if (!onImageFiles || !hasImageTransfer(event.dataTransfer)) return;
+          event.preventDefault();
+          setImageDragActive(true);
+        }}
+        onDragOver={(event) => {
+          if (!onImageFiles || !hasImageTransfer(event.dataTransfer)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setImageDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          setImageDragActive(false);
+        }}
+        onDrop={(event) => {
+          const files = imageFilesFromTransfer(event.dataTransfer);
+          if (!onImageFiles || files.length === 0) return;
+          event.preventDefault();
+          setImageDragActive(false);
+          void onImageFiles(files, imageInsertionIndex(event.clientY));
+        }}
+        onPaste={(event) => {
+          const files = imageFilesFromTransfer(event.clipboardData);
+          if (!onImageFiles || files.length === 0) return;
+          event.preventDefault();
+          void onImageFiles(files, imageInsertionIndex());
+        }}
+      >
+        {imageDragActive ? (
+          <div
+            data-testid="markdown-image-drop-overlay"
+            className="text-primary pointer-events-none absolute inset-x-0 top-3 z-10 mx-auto w-fit rounded-full border bg-background/95 px-3 py-1.5 text-sm font-medium shadow-sm"
+          >
+            Drop images to add them
+          </div>
+        ) : null}
         {blocks.map((block, index) => {
           const isActive = index === activeBlockIndex;
           const isListItem = isListMarkdownBlock(block);
@@ -406,8 +508,17 @@ export function MarkdownBlockEditor({
                 onMove={moveBlock}
               />
               {isActive ? (
-                <div className="bg-accent/70 flex min-w-0 flex-1 cursor-text items-start gap-2.5 rounded-md pl-1 transition-colors">
-                  {isListItem ? (
+                <div
+                  className={cn(
+                    "bg-accent/70 flex min-w-0 flex-1 cursor-text items-start gap-2.5 rounded-md pl-1 transition-colors",
+                    block.kind === "code" && "flex-col gap-0 p-2",
+                  )}
+                >
+                  {block.kind === "code" ? (
+                    <div className="pointer-events-none w-full" aria-hidden="true">
+                      <MarkdownBlockPreview block={block} resolveAssetURL={resolveAssetURL} />
+                    </div>
+                  ) : isListItem ? (
                     <MarkdownListEditingMarker block={block} orderedListOrdinal={orderedListOrdinal} />
                   ) : null}
                   <InlineMarkdownBlockTextarea
@@ -417,6 +528,18 @@ export function MarkdownBlockEditor({
                     initialCaret={pendingCaret}
                     onBlur={deleteEmptyBlocks}
                     onChange={(nextValue) => updateBlock(index, editorPrefix + nextValue)}
+                    onPaste={(event) => {
+                      if (block.kind === "code") return;
+                      const url = event.clipboardData.getData("text/plain").trim();
+                      if (!/^https?:\/\/\S+$/i.test(url)) return;
+                      event.preventDefault();
+                      const target = event.currentTarget;
+                      const insertion = `[${url}](${url})`;
+                      const nextValue = `${target.value.slice(0, target.selectionStart)}${insertion}${target.value.slice(target.selectionEnd)}`;
+                      updateBlock(index, editorPrefix + nextValue);
+                      const caret = target.selectionStart + insertion.length;
+                      target.ownerDocument.defaultView?.requestAnimationFrame(() => target.setSelectionRange(caret, caret));
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Tab") {
                         event.preventDefault();
@@ -455,6 +578,11 @@ export function MarkdownBlockEditor({
                         }
                         return;
                       }
+                      if (event.key === "Backspace" && isEmptyListMarkdownBlock(block)) {
+                        event.preventDefault();
+                        exitEmptyListItem(index);
+                        return;
+                      }
                       if (event.key === "Backspace" && !event.currentTarget.value) {
                         if (deleteEmptyBlock(index)) {
                           event.preventDefault();
@@ -463,7 +591,7 @@ export function MarkdownBlockEditor({
                       }
                       if (event.key === "Enter") {
                         event.preventDefault();
-                        if (event.shiftKey) {
+                        if (event.shiftKey || shouldInsertCodeBlockSoftBreak(block, event.currentTarget.selectionStart)) {
                           insertSoftBreak(index, event, editorPrefix);
                           return;
                         }
@@ -473,7 +601,7 @@ export function MarkdownBlockEditor({
                         insertBlockBreak(index, event, editorPrefix.length);
                       }
                     }}
-                    compact={isListItem}
+                    compact={isListItem || block.kind === "code"}
                   />
                 </div>
               ) : (
@@ -487,11 +615,12 @@ export function MarkdownBlockEditor({
                     invalid && !block.source.trim() && "ring-destructive/35 ring-1",
                   )}
                 >
-                  <MarkdownBlockPreview
-                    block={block}
-                    orderedListOrdinal={orderedListOrdinal}
-                    onToggleTask={(lineIndex) => toggleTaskItem(index, lineIndex)}
-                  />
+                      <MarkdownBlockPreview
+                        block={block}
+                        orderedListOrdinal={orderedListOrdinal}
+                        onToggleTask={(lineIndex) => toggleTaskItem(index, lineIndex)}
+                        resolveAssetURL={resolveAssetURL}
+                      />
                 </button>
               )}
               </div>
@@ -527,4 +656,4 @@ export function MarkdownBlockEditor({
       {invalid ? <FieldDescription>Markdown body is required.</FieldDescription> : null}
     </Field>
   );
-}
+});

@@ -8,10 +8,21 @@ struct AccountController: RouteCollection {
     }
 
     func list(req: Request) async throws -> [AccountResponse] {
-        try await LinkedAccount.query(on: req.db)
+        let accounts = try await LinkedAccount.query(on: req.db)
             .sort(\.$linkedAt, .descending)
             .all()
-            .map(AccountResponse.init(account:))
+
+        for account in accounts {
+            do {
+                try await req.application.accountProfileDiscovery.sync(account: account, req: req)
+            } catch {
+                req.logger.warning("Account profile refresh failed; returning cached identity", metadata: [
+                    "accountDID": "\(account.did)",
+                    "error": "\(error)",
+                ])
+            }
+        }
+        return accounts.map(AccountResponse.init(account:))
     }
 
     func unlink(req: Request) async throws -> HTTPStatus {
@@ -28,6 +39,8 @@ struct AccountResponse: Content {
     let id: UUID?
     let did: String
     let handle: String
+    let displayName: String?
+    let avatarURL: String?
     let pdsURL: String
     let scope: String
     let linkedAt: Date
@@ -37,6 +50,8 @@ struct AccountResponse: Content {
         id = account.id
         did = account.did
         handle = account.handle
+        displayName = account.displayName
+        avatarURL = atprotoBlobURL(pdsURL: account.pdsURL, did: account.did, cid: account.avatarCID)
         pdsURL = account.pdsURL
         scope = account.scope
         linkedAt = account.linkedAt

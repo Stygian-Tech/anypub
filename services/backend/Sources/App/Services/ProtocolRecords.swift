@@ -27,14 +27,15 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
     let type = "site.standard.document"
     let site: String
     let title: String
-    let publishedAt: Date
+    let publishedAt: ATProtoTimestamp
     let path: String?
     let tags: [String]?
+    let langs: [String]?
     let coverImage: ATProtoBlobRef?
     let description: String?
     let textContent: String?
     let content: JSONValue?
-    let updatedAt: Date?
+    let updatedAt: ATProtoTimestamp?
 
     enum CodingKeys: String, CodingKey {
         case type = "$type"
@@ -43,6 +44,7 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
         case publishedAt
         case path
         case tags
+        case langs
         case coverImage
         case description
         case textContent
@@ -51,10 +53,48 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
     }
 }
 
+struct ATProtoTimestamp: Codable, Equatable, Sendable {
+    let date: Date
+
+    init(_ date: Date) {
+        self.date = date
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
+        guard let date = fractional.date(from: value) ?? standard.date(from: value) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid AT Protocol timestamp"
+            )
+        }
+        self.date = date
+    }
+
+    func encode(to encoder: Encoder) throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        var container = encoder.singleValueContainer()
+        try container.encode(formatter.string(from: date))
+    }
+}
+
 struct StrongReference: Codable, Equatable, Sendable {
-    let type = "com.atproto.repo.strongRef"
+    let type: String?
     let uri: String
     let cid: String
+
+    init(uri: String, cid: String, type: String? = nil) {
+        self.type = type
+        self.uri = uri
+        self.cid = cid
+    }
 
     enum CodingKeys: String, CodingKey {
         case type = "$type"
@@ -115,18 +155,26 @@ struct CalendarEventRecord: Codable, Equatable, Sendable {
 }
 
 struct ProtocolRecordBuilder: Sendable {
-    func documentRecord(draft: Draft, cover: ATProtoBlobRef?, content: JSONValue? = nil) -> StandardSiteDocumentRecord {
-        StandardSiteDocumentRecord(
+    func documentRecord(
+        draft: Draft,
+        cover: ATProtoBlobRef?,
+        content: JSONValue? = nil,
+        textContent: String? = nil,
+        pcktCompatible: Bool = false
+    ) -> StandardSiteDocumentRecord {
+        let tags = draft.tags()
+        return StandardSiteDocumentRecord(
             site: draft.publicationURI,
             title: draft.title,
-            publishedAt: draft.publishedAt ?? draft.scheduledAt ?? Date(),
+            publishedAt: ATProtoTimestamp(draft.publishedAt ?? draft.scheduledAt ?? Date()),
             path: draft.path,
-            tags: draft.tags().isEmpty ? nil : draft.tags(),
+            tags: tags.isEmpty && !pcktCompatible ? nil : tags,
+            langs: pcktCompatible ? ["en"] : nil,
             coverImage: cover,
             description: draft.excerpt,
-            textContent: draft.plaintext,
+            textContent: textContent ?? draft.plaintext,
             content: content,
-            updatedAt: Date()
+            updatedAt: ATProtoTimestamp(Date())
         )
     }
 

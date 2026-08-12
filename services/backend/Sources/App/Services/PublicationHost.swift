@@ -2,6 +2,7 @@ import Foundation
 
 enum PublicationHost: String, Codable, Equatable, Sendable {
     case leaflet
+    case markpub
     case offprint
     case pckt
 }
@@ -19,7 +20,7 @@ struct PublicationHostDetector: Sendable {
             return host
         }
 
-        return detect(in: [publicationURL])
+        return detect(in: [publicationURL]) ?? .markpub
     }
 
     private static func detect(in candidates: [String?]) -> PublicationHost? {
@@ -27,6 +28,9 @@ struct PublicationHostDetector: Sendable {
 
         if values.contains(where: { $0.contains("pub.leaflet") || $0.contains("leaflet") }) {
             return .leaflet
+        }
+        if values.contains(where: { $0.contains("at.markpub") || $0.contains("markpub") }) {
+            return .markpub
         }
         if values.contains(where: { $0.contains("app.offprint") || $0.contains("offprint") }) {
             return .offprint

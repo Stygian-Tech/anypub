@@ -43,21 +43,30 @@ struct AuthController: RouteCollection {
             issuer: issuer,
             req: req
         )
+        _ = try await persistAccountAndDiscover(completion: completion, req: req)
+        try await stateRecord.delete(on: req.db)
+        return req.redirect(to: stateRecord.redirectURL)
+    }
+
+    @discardableResult
+    func persistAccountAndDiscover(completion: OAuthCompletion, req: Request) async throws -> LinkedAccount {
         let encryption = req.application.tokenEncryption
-        if let account = try await LinkedAccount.query(on: req.db)
+        let linkedAccount: LinkedAccount
+        if let existing = try await LinkedAccount.query(on: req.db)
             .filter(\.$did, .equal, completion.did)
             .first() {
-            account.handle = completion.handle
-            account.pdsURL = completion.pdsURL
-            account.scope = completion.scope
-            account.accessToken = try encryption.seal(completion.accessToken)
-            account.refreshToken = try encryption.seal(completion.refreshToken)
-            account.tokenEndpoint = completion.tokenEndpoint
-            account.dpopKeyJSON = try encryption.seal(completion.dpopKeyJSON)
-            account.updatedAt = Date()
-            try await account.save(on: req.db)
+            existing.handle = completion.handle
+            existing.pdsURL = completion.pdsURL
+            existing.scope = completion.scope
+            existing.accessToken = try encryption.seal(completion.accessToken)
+            existing.refreshToken = try encryption.seal(completion.refreshToken)
+            existing.tokenEndpoint = completion.tokenEndpoint
+            existing.dpopKeyJSON = try encryption.seal(completion.dpopKeyJSON)
+            existing.updatedAt = Date()
+            try await existing.save(on: req.db)
+            linkedAccount = existing
         } else {
-            let account = LinkedAccount(
+            let newAccount = LinkedAccount(
                 did: completion.did,
                 handle: completion.handle,
                 pdsURL: completion.pdsURL,
@@ -67,10 +76,19 @@ struct AuthController: RouteCollection {
                 tokenEndpoint: completion.tokenEndpoint,
                 dpopKeyJSON: try encryption.seal(completion.dpopKeyJSON)
             )
-            try await account.save(on: req.db)
+            try await newAccount.save(on: req.db)
+            linkedAccount = newAccount
         }
-        try await stateRecord.delete(on: req.db)
-        return req.redirect(to: stateRecord.redirectURL)
+
+        do {
+            _ = try await req.application.publicationDiscovery.sync(account: linkedAccount, req: req)
+        } catch {
+            req.logger.warning("Publication discovery failed after OAuth; account remains linked", metadata: [
+                "accountDID": "\(linkedAccount.did)",
+                "error": "\(error)",
+            ])
+        }
+        return linkedAccount
     }
 }
 

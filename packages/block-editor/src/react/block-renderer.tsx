@@ -4,6 +4,7 @@ import * as React from "react";
 import { SquareCheckIcon, SquareIcon } from "lucide-react";
 import { orderedListOrdinalAt, type BlockDocument, type MarkdownBlock } from "../model";
 import { cn } from "../utils";
+import { SyntaxHighlightedCode } from "./syntax-highlighted-code";
 
 export function BlockDocumentRenderer({
   document,
@@ -30,10 +31,12 @@ export function MarkdownBlockPreview({
   block,
   orderedListOrdinal,
   onToggleTask,
+  resolveAssetURL,
 }: {
   block: MarkdownBlock;
   orderedListOrdinal?: number;
   onToggleTask?: (itemIndex: number) => void;
+  resolveAssetURL?: (assetID: string) => string;
 }) {
   const trimmed = block.source.trim();
 
@@ -42,11 +45,29 @@ export function MarkdownBlockPreview({
   }
 
   if (block.kind === "code") {
-    const code = trimmed.replace(/^```\w*\n?/, "").replace(/\n?```$/, "");
+    const code = trimmed.replace(/^```[^\n`]*\n?/, "").replace(/\n?```$/, "");
+    return <SyntaxHighlightedCode code={code} language={block.language} />;
+  }
+
+  if (block.kind === "image") {
+    const src = resolveAssetURL?.(block.assetID);
+    return src ? (
+      <figure className="overflow-hidden rounded-md border bg-muted/30">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={block.alt} className="max-h-[34rem] w-full object-contain" />
+        {block.alt ? <figcaption className="text-muted-foreground px-3 py-2 text-xs">{block.alt}</figcaption> : null}
+      </figure>
+    ) : <span className="text-muted-foreground italic">Image: {block.alt || block.assetID}</span>;
+  }
+
+  if (block.kind === "embed") {
     return (
-      <pre className="bg-muted overflow-auto rounded-md p-3 text-base leading-7">
-        <code>{code}</code>
-      </pre>
+      <div className="rounded-md border bg-muted/30 px-4 py-3">
+        <span className="text-muted-foreground block text-xs font-medium uppercase tracking-wide">Embedded link</span>
+        <a href={block.url} className="mt-1 block truncate underline underline-offset-2" onClick={(event) => event.preventDefault()}>
+          {block.url}
+        </a>
+      </div>
     );
   }
 
@@ -204,7 +225,7 @@ function renderMarkdownLines(lines: string[]) {
 
 function renderInlineMarkdown(text: string) {
   const nodes: React.ReactNode[] = [];
-  const pattern = /(!?\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  const pattern = /(!?\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\+\+[^+]+\+\+|\*[^*]+\*|_[^_]+_)/g;
   let lastIndex = 0;
 
   for (const match of text.matchAll(pattern)) {
@@ -249,10 +270,22 @@ function renderInlineToken(token: string, key: number) {
   }
 
   if (token.startsWith("**")) {
-    return <strong key={key}>{token.slice(2, -2)}</strong>;
+    return <strong key={key} className="font-semibold">{token.slice(2, -2)}</strong>;
   }
 
-  return <em key={key}>{token.slice(1, -1)}</em>;
+  if (token.startsWith("__")) {
+    return <strong key={key} className="font-semibold">{token.slice(2, -2)}</strong>;
+  }
+
+  if (token.startsWith("~~")) {
+    return <del key={key} className="line-through">{token.slice(2, -2)}</del>;
+  }
+
+  if (token.startsWith("++")) {
+    return <u key={key} className="underline underline-offset-2">{token.slice(2, -2)}</u>;
+  }
+
+  return <em key={key} className="italic">{token.slice(1, -1)}</em>;
 }
 
 function safeMarkdownHref(href: string) {

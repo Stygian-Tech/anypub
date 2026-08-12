@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
 import { PublicationIcon } from "@/components/cms/publication-icon";
+import { ExperimentalBadge } from "@/components/cms/experimental-badge";
 import type { Draft, Publication } from "@/lib/types";
 
 export function NewDraftDialog({
@@ -27,7 +29,12 @@ export function NewDraftDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={publications.length === 0}
+          title={publications.length === 0 ? "No publications found" : undefined}
+        >
           <PlusIcon data-icon="inline-start" />
           New
         </Button>
@@ -39,24 +46,26 @@ export function NewDraftDialog({
         </DialogHeader>
         <div className="grid gap-2">
           {publications.map((publication) => (
-            <button
-              key={publication.uri}
-              type="button"
-              onClick={() => createForPublication(publication.uri)}
-              className="border-border hover:bg-accent focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2"
-            >
-              <PublicationIcon publication={publication} />
-              <span className="min-w-0 flex-1">
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-medium">{publication.name}</span>
+            <div key={publication.uri} className="grid gap-2">
+              <button
+                type="button"
+                onClick={() => createForPublication(publication.uri)}
+                className="border-border hover:bg-accent focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2"
+              >
+                <PublicationIcon publication={publication} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-medium">{publication.name}</span>
+                  </span>
+                  <span className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
+                    <span className="shrink-0">{publication.host ?? "standard.site"}</span>
+                    <span aria-hidden>/</span>
+                    <span className="truncate">{publication.url}</span>
+                  </span>
                 </span>
-                <span className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
-                  <span className="shrink-0">{publication.host ?? "standard.site"}</span>
-                  <span aria-hidden>/</span>
-                  <span className="truncate">{publication.url}</span>
-                </span>
-              </span>
-            </button>
+              </button>
+              {publication.host === "pckt" ? <PcktPublishingNotice /> : null}
+            </div>
           ))}
         </div>
       </DialogContent>
@@ -86,19 +95,21 @@ export function ChangePublicationDialog({
         </DialogHeader>
         <div className="grid gap-2">
           {publications.map((publication) => (
-            <button
-              key={publication.uri}
-              type="button"
-              disabled={busy || publication.uri === draft?.publicationURI}
-              onClick={() => draft && onChange(draft, publication)}
-              className="border-border hover:bg-accent focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2 disabled:opacity-50"
-            >
-              <PublicationIcon publication={publication} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{publication.name}</span>
-                <span className="text-muted-foreground block truncate text-xs">{publication.url}</span>
-              </span>
-            </button>
+            <div key={publication.uri} className="grid gap-2">
+              <button
+                type="button"
+                disabled={busy || publication.uri === draft?.publicationURI}
+                onClick={() => draft && onChange(draft, publication)}
+                className="border-border hover:bg-accent focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2 disabled:opacity-50"
+              >
+                <PublicationIcon publication={publication} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{publication.name}</span>
+                  <span className="text-muted-foreground block truncate text-xs">{publication.url}</span>
+                </span>
+              </button>
+              {publication.host === "pckt" ? <PcktPublishingNotice /> : null}
+            </div>
           ))}
         </div>
       </DialogContent>
@@ -125,7 +136,10 @@ export function EditScheduleDialog({
     <Dialog open={Boolean(draft)} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Edit scheduled time</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            Edit scheduled time
+            <ExperimentalBadge />
+          </DialogTitle>
           <DialogDescription>{draft?.title}</DialogDescription>
         </DialogHeader>
         <Field>
@@ -154,21 +168,24 @@ export function ConfirmPostActionDialog({
   onConfirm,
 }: {
   draft: Draft | null;
-  action: "delete" | "revert";
+  action: "delete" | "revert" | "unpublish";
   busy: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => Promise<void>;
 }) {
   const published = draft?.status === "published";
   const deleting = action === "delete";
+  const unpublishing = action === "unpublish";
 
   return (
     <Dialog open={Boolean(draft)} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{deleting ? "Delete post?" : "Revert to draft?"}</DialogTitle>
+          <DialogTitle>{deleting ? "Delete post?" : unpublishing ? "Unpublish article?" : "Revert to draft?"}</DialogTitle>
           <DialogDescription>
-            {published
+            {unpublishing
+              ? "This removes the remote article, platform wrapper, and linked calendar event while keeping the content as a local draft."
+              : published
               ? "This will delete the remote standard.site record and clear its publication linkage."
               : deleting
                 ? "This removes the post from local draft storage."
@@ -177,8 +194,8 @@ export function ConfirmPostActionDialog({
         </DialogHeader>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant={deleting ? "destructive" : "default"} onClick={onConfirm} disabled={busy}>
-            {busy ? "Working" : deleting ? "Delete" : "Revert"}
+          <Button variant={deleting || unpublishing ? "destructive" : "default"} onClick={onConfirm} disabled={busy}>
+            {busy ? "Working" : deleting ? "Delete" : unpublishing ? "Unpublish" : "Revert"}
           </Button>
         </div>
       </DialogContent>

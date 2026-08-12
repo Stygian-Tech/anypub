@@ -18,6 +18,7 @@ import {
   EditScheduleDialog,
 } from "@/components/cms/post-dialogs";
 import { RightPanel } from "@/components/cms/right-panel";
+import { PublicationsDashboard } from "@/components/cms/publications-dashboard";
 import { WorkspaceHeader } from "@/components/cms/workspace-header";
 import { ColumnResizeHandle, useWorkspaceLayout } from "@/components/cms/workspace-layout";
 import { useAppearancePreferences } from "@/components/cms/use-appearance-preferences";
@@ -27,7 +28,15 @@ import {
   calendarItemsFromDrafts,
   sortDraftsReverseChronological,
 } from "@/lib/cms-data";
-import { loadAccounts } from "@/lib/oauth-api";
+import {
+  DRAFT_AUTOSAVE_DELAY_MS,
+  slugDiscriminatorFromDraftID,
+  slugPathDiscriminator,
+  slugPathFromTitle,
+  titleManagedPath,
+  type DraftSaveState,
+} from "@/lib/draft-editor";
+import { loadAccounts, unlinkAccount } from "@/lib/oauth-api";
 import type { Draft, LinkedAccount, Publication } from "@/lib/types";
 import { markdownToPlaintext, validateDraft } from "@/lib/validation";
 
@@ -36,22 +45,28 @@ export function CmsWorkspace() {
   const [accountLoadState, setAccountLoadState] = React.useState<"loading" | "ready" | "error">("loading");
   const [publications, setPublications] = React.useState<Publication[]>([]);
   const [drafts, setDrafts] = React.useState<Draft[]>([]);
+  const [activeView, setActiveView] = React.useState<"posts" | "publications">("posts");
   const activeAccount = accounts[0];
   const activeAccountDID = activeAccount?.did ?? "";
   const [selectedDraftID, setSelectedDraftID] = React.useState("");
   const [isSyncing, setIsSyncing] = React.useState(false);
-  const [isSaving, setIsSaving] = React.useState(false);
+  const [draftSaveStates, setDraftSaveStates] = React.useState<Record<string, DraftSaveState>>({});
   const [isPublishing, setIsPublishing] = React.useState(false);
+  const [isLoggingOut, setIsLoggingOut] = React.useState(false);
   const [publicationDraft, setPublicationDraft] = React.useState<Draft | null>(null);
   const [scheduleDraftToEdit, setScheduleDraftToEdit] = React.useState<Draft | null>(null);
   const [scheduleDateTime, setScheduleDateTime] = React.useState("");
   const [deleteDraftToConfirm, setDeleteDraftToConfirm] = React.useState<Draft | null>(null);
   const [revertDraftToConfirm, setRevertDraftToConfirm] = React.useState<Draft | null>(null);
+  const [unpublishDraftToConfirm, setUnpublishDraftToConfirm] = React.useState<Draft | null>(null);
   const [isMutatingDraft, setIsMutatingDraft] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [draftListTab, setDraftListTab] = React.useState<DraftListTab>("drafts");
   const [draftListGrouping, setDraftListGrouping] = React.useState<DraftListGrouping>("all");
   const [scheduledDate, setScheduledDate] = React.useState<Date | undefined>();
+  const autosaveTimers = React.useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const inFlightSaves = React.useRef(new Map<string, Promise<boolean>>());
+  const editVersions = React.useRef(new Map<string, number>());
   const {
     themePreference,
     fontPreference,
@@ -90,12 +105,22 @@ export function CmsWorkspace() {
   }, [requestAccounts]);
 
   React.useEffect(() => {
+    const timers = autosaveTimers.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
+  React.useEffect(() => {
     if (!activeAccountDID) return;
     const controller = new AbortController();
 
     draftAPI.loadDrafts(activeAccountDID, controller.signal)
       .then((persistedDrafts) => {
         setDrafts(persistedDrafts);
+        editVersions.current = new Map(persistedDrafts.map((draft) => [draft.id, 0]));
+        setDraftSaveStates(Object.fromEntries(persistedDrafts.map((draft) => [draft.id, "saved"])));
         setSelectedDraftID((current) =>
           persistedDrafts.some((draft) => draft.id === current)
             ? current
@@ -118,16 +143,17 @@ export function CmsWorkspace() {
 
     draftAPI.loadPublications(activeAccountDID, controller.signal)
       .then(async (persistedPublications) => {
-        if (persistedPublications.length > 0) {
-          setPublications(persistedPublications);
-          return;
-        }
+        setPublications(persistedPublications);
+        setIsSyncing(true);
         const syncedPublications = await draftAPI.syncPublications(activeAccountDID);
         if (!controller.signal.aborted) setPublications(syncedPublications);
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         toast.error("Could not load saved publications");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsSyncing(false);
       });
 
     return () => controller.abort();
@@ -157,10 +183,9 @@ export function CmsWorkspace() {
     return visibleDrafts.find((draft) => draft.id === selectedDraftID) ?? visibleDrafts[0];
   }, [selectedDraftID, visibleDrafts]);
 
-  const selectedPublication = React.useMemo(
-    () => publications.find((publication) => publication.uri === activeDraft?.publicationURI) ?? accountPublications[0],
-    [accountPublications, activeDraft?.publicationURI, publications],
-  );
+  const selectedPublication = activeDraft
+    ? publications.find((publication) => publication.uri === activeDraft.publicationURI)
+    : accountPublications[0];
 
   const validation = React.useMemo(() => {
     if (!activeDraft) {
@@ -171,26 +196,81 @@ export function CmsWorkspace() {
 
   const calendarItems = React.useMemo(() => calendarItemsFromDrafts(drafts), [drafts]);
 
+  function setDraftSaveState(draftID: string, state: DraftSaveState) {
+    setDraftSaveStates((current) => ({ ...current, [draftID]: state }));
+  }
+
+  function clearAutosave(draftID: string) {
+    const timer = autosaveTimers.current.get(draftID);
+    if (timer) clearTimeout(timer);
+    autosaveTimers.current.delete(draftID);
+  }
+
+  async function persistDraftSnapshot(draft: Draft, version: number, notify: boolean) {
+    setDraftSaveState(draft.id, "saving");
+    try {
+      const persisted = await draftAPI.saveDraft(draft);
+      if (editVersions.current.get(draft.id) === version) {
+        setDrafts((current) => current.map((candidate) => candidate.id === persisted.id ? persisted : candidate));
+        setDraftSaveState(draft.id, "saved");
+      } else {
+        setDraftSaveState(draft.id, "unsaved");
+      }
+      if (notify) toast.success("Draft saved");
+      return true;
+    } catch {
+      if (editVersions.current.get(draft.id) === version) {
+        setDraftSaveState(draft.id, "error");
+      }
+      if (notify) toast.error("Could not save draft");
+      return false;
+    }
+  }
+
+  function trackDraftSave(draft: Draft, version: number, notify: boolean) {
+    const save = persistDraftSnapshot(draft, version, notify);
+    inFlightSaves.current.set(draft.id, save);
+    void save.finally(() => {
+      if (inFlightSaves.current.get(draft.id) === save) {
+        inFlightSaves.current.delete(draft.id);
+      }
+    });
+    return save;
+  }
+
+  function scheduleAutosave(draft: Draft, version: number) {
+    clearAutosave(draft.id);
+    const timer = setTimeout(() => {
+      autosaveTimers.current.delete(draft.id);
+      void trackDraftSave(draft, version, false);
+    }, DRAFT_AUTOSAVE_DELAY_MS);
+    autosaveTimers.current.set(draft.id, timer);
+  }
+
   function updateDraft(patch: Partial<Draft>) {
     if (!activeDraft) {
       return;
     }
-    setDrafts((current) =>
-      current.map((draft) => {
-        if (draft.id !== activeDraft.id) {
-          return draft;
-        }
-        const next = {
-          ...draft,
-          ...patch,
-          updatedAt: new Date().toISOString(),
-        };
-        if (patch.markdown !== undefined) {
-          next.plaintext = markdownToPlaintext(patch.markdown);
-        }
-        return next;
-      }),
-    );
+    const generatedPath = patch.title !== undefined && patch.path === undefined && titleManagedPath(activeDraft)
+      ? slugPathFromTitle(
+          patch.title,
+          slugPathDiscriminator(activeDraft.path, activeDraft.title) ?? slugDiscriminatorFromDraftID(activeDraft.id),
+        )
+      : undefined;
+    const next = {
+      ...activeDraft,
+      ...patch,
+      ...(generatedPath ? { path: generatedPath } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    if (patch.markdown !== undefined) {
+      next.plaintext = markdownToPlaintext(patch.markdown);
+    }
+    const version = (editVersions.current.get(activeDraft.id) ?? 0) + 1;
+    editVersions.current.set(activeDraft.id, version);
+    setDrafts((current) => current.map((draft) => draft.id === activeDraft.id ? next : draft));
+    setDraftSaveState(activeDraft.id, "unsaved");
+    scheduleAutosave(next, version);
   }
 
   async function createDraft(publicationURI: string) {
@@ -198,13 +278,14 @@ export function CmsWorkspace() {
     if (!publication) {
       return false;
     }
+    const id = crypto.randomUUID();
     const next: Draft = {
-      id: crypto.randomUUID(),
+      id,
       accountDID: activeAccountDID,
       publicationURI: publication.uri,
       publicationURL: publication.url,
       title: "Untitled article",
-      path: "/untitled-article",
+      path: slugPathFromTitle("Untitled article", slugDiscriminatorFromDraftID(id)),
       excerpt: "",
       tags: [],
       markdown: "",
@@ -216,6 +297,8 @@ export function CmsWorkspace() {
     try {
       const persisted = await draftAPI.createDraft(next);
       setDrafts((current) => [persisted, ...current]);
+      editVersions.current.set(persisted.id, 0);
+      setDraftSaveState(persisted.id, "saved");
       setSearch("");
       setDraftListTab("drafts");
       setSelectedDraftID(persisted.id);
@@ -227,24 +310,17 @@ export function CmsWorkspace() {
   }
 
   async function saveDraft() {
-    if (!activeDraft || isSaving) {
+    if (!activeDraft || draftSaveStates[activeDraft.id] === "saving") {
       return;
     }
-
-    setIsSaving(true);
-    try {
-      const persisted = await draftAPI.saveDraft(activeDraft);
-      setDrafts((current) => current.map((draft) => draft.id === persisted.id ? persisted : draft));
-      toast.success("Draft saved");
-    } catch {
-      toast.error("Could not save draft");
-    } finally {
-      setIsSaving(false);
-    }
+    clearAutosave(activeDraft.id);
+    await trackDraftSave(activeDraft, editVersions.current.get(activeDraft.id) ?? 0, true);
   }
 
   function replaceDraft(persisted: Draft) {
+    clearAutosave(persisted.id);
     setDrafts((current) => current.map((draft) => draft.id === persisted.id ? persisted : draft));
+    setDraftSaveState(persisted.id, "saved");
   }
 
   function beginScheduleEdit(draft: Draft) {
@@ -311,11 +387,32 @@ export function CmsWorkspace() {
     setIsMutatingDraft(true);
     try {
       await draftAPI.deleteDraft(deleteDraftToConfirm.id);
+      clearAutosave(deleteDraftToConfirm.id);
+      editVersions.current.delete(deleteDraftToConfirm.id);
       setDrafts((current) => current.filter((draft) => draft.id !== deleteDraftToConfirm.id));
       setDeleteDraftToConfirm(null);
       toast.success("Post deleted");
     } catch {
       toast.error("Could not delete post");
+    } finally {
+      setIsMutatingDraft(false);
+    }
+  }
+
+  async function unpublishDraft() {
+    if (!unpublishDraftToConfirm) {
+      return;
+    }
+    setIsMutatingDraft(true);
+    try {
+      const persisted = await draftAPI.unpublishDraft(unpublishDraftToConfirm.id);
+      replaceDraft(persisted);
+      setUnpublishDraftToConfirm(null);
+      setDraftListTab("drafts");
+      setSelectedDraftID(persisted.id);
+      toast.success("Article unpublished and returned to drafts");
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not unpublish article"));
     } finally {
       setIsMutatingDraft(false);
     }
@@ -327,6 +424,8 @@ export function CmsWorkspace() {
     }
     setIsMutatingDraft(true);
     try {
+      clearAutosave(activeDraft.id);
+      await inFlightSaves.current.get(activeDraft.id);
       await draftAPI.saveDraft(activeDraft);
       const persisted = await draftAPI.scheduleDraft(activeDraft.id, scheduledDate);
       replaceDraft(persisted);
@@ -346,14 +445,17 @@ export function CmsWorkspace() {
       return;
     }
     setIsPublishing(true);
+    const isUpdate = activeDraft.status === "published";
     try {
+      clearAutosave(activeDraft.id);
+      await inFlightSaves.current.get(activeDraft.id);
       await draftAPI.saveDraft(activeDraft);
       await draftAPI.publishDraft(activeDraft.id);
       const persisted = await draftAPI.getDraft(activeDraft.id);
       replaceDraft(persisted);
       setDraftListTab("published");
       setSelectedDraftID(persisted.id);
-      toast.success("Article published");
+      toast.success(isUpdate ? "Article updated" : "Article published");
     } catch (error) {
       const persisted = await draftAPI.getDraft(activeDraft.id).catch(() => null);
       if (persisted) {
@@ -376,6 +478,24 @@ export function CmsWorkspace() {
       toast.error(errorMessage(error, "Could not sync publications"));
     } finally {
       setIsSyncing(false);
+    }
+  }
+
+  async function logOut() {
+    if (!activeAccount || isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    try {
+      await unlinkAccount(activeAccount.did);
+      setAccounts((current) => current.filter((account) => account.did !== activeAccount.did));
+      setPublications([]);
+      setDrafts([]);
+      setSelectedDraftID("");
+      toast.success("Logged out");
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not log out"));
+    } finally {
+      setIsLoggingOut(false);
     }
   }
 
@@ -407,17 +527,29 @@ export function CmsWorkspace() {
       <div className="app-appearance-scope flex h-[calc(100dvh-var(--environment-banner-height,0px))] min-h-0 bg-background text-foreground" style={shellStyle}>
         <main className="flex min-w-0 flex-1 flex-col">
           <WorkspaceHeader
+            activeView={activeView}
             theme={themePreference}
             publications={accountPublications}
             isSyncing={isSyncing}
             canPublish={Boolean(activeDraft && validation.valid && !isPublishing)}
             isPublishing={isPublishing}
+            isUpdating={activeDraft?.status === "published"}
+            isLoggingOut={isLoggingOut}
             onThemeChange={changeThemePreference}
             onSync={syncPublications}
             onCreateDraft={createDraft}
             onPublish={publishDraft}
+            onLogOut={logOut}
+            onViewChange={setActiveView}
           />
 
+          {activeView === "publications" ? (
+            <PublicationsDashboard
+              publications={accountPublications}
+              isSyncing={isSyncing}
+              onSync={syncPublications}
+            />
+          ) : (
           <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[var(--workbench-columns)]">
             <DraftList
               drafts={visibleDrafts}
@@ -441,6 +573,7 @@ export function CmsWorkspace() {
               onEditSchedule={beginScheduleEdit}
               onDelete={setDeleteDraftToConfirm}
               onRevert={setRevertDraftToConfirm}
+              onUnpublish={setUnpublishDraftToConfirm}
             />
             <ColumnResizeHandle
               className="hidden xl:flex"
@@ -457,12 +590,16 @@ export function CmsWorkspace() {
                 validation={validation.errors}
                 onChange={updateDraft}
                 onSave={saveDraft}
-                isSaving={isSaving}
+                saveState={draftSaveStates[activeDraft.id] ?? "saved"}
               />
             ) : (
               <Empty className="m-4">
-                <EmptyTitle>No draft selected</EmptyTitle>
-                <EmptyDescription>Create a draft to start writing.</EmptyDescription>
+                <EmptyTitle>{accountPublications.length === 0 ? "No publications found" : "No draft selected"}</EmptyTitle>
+                <EmptyDescription>
+                  {accountPublications.length === 0
+                    ? "Refresh publication discovery after creating a site.standard publication."
+                    : "Create a draft to start writing."}
+                </EmptyDescription>
               </Empty>
             )}
             <ColumnResizeHandle
@@ -484,6 +621,7 @@ export function CmsWorkspace() {
               onDraftChange={updateDraft}
             />
           </div>
+          )}
         </main>
         <ChangePublicationDialog
           draft={publicationDraft}
@@ -506,6 +644,13 @@ export function CmsWorkspace() {
           busy={isMutatingDraft}
           onOpenChange={(open) => !open && setRevertDraftToConfirm(null)}
           onConfirm={revertDraftToDraft}
+        />
+        <ConfirmPostActionDialog
+          draft={unpublishDraftToConfirm}
+          action="unpublish"
+          busy={isMutatingDraft}
+          onOpenChange={(open) => !open && setUnpublishDraftToConfirm(null)}
+          onConfirm={unpublishDraft}
         />
         <ConfirmPostActionDialog
           draft={deleteDraftToConfirm}
