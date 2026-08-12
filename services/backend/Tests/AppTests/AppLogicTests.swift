@@ -5,6 +5,15 @@ import VaporTesting
 
 @Suite("AnyPub backend logic")
 struct AppLogicTests {
+    @Test("pckt paths use a stable native-style discriminator")
+    func pcktPathsUseStableDiscriminator() throws {
+        let draftID = try #require(UUID(uuidString: "00000000-0000-0000-0000-0123456789AB"))
+
+        #expect(pcktCompatiblePath(title: "Testing Article", path: "/testing-article", draftID: draftID) == "/testing-article-56789ab")
+        #expect(pcktCompatiblePath(title: "Testing Article", path: "/my-custom-slug", draftID: draftID) == "/my-custom-slug-56789ab")
+        #expect(pcktCompatiblePath(title: "Changed", path: "/custom-path-56789ab", draftID: draftID) == "/custom-path-56789ab")
+    }
+
     @Test("OAuth scopes include standard.site, calendar, and blob upload transition")
     func oauthScopes() {
         let scopes = OAuthScopeBuilder.cmsScopes().split(separator: " ").map(String.init)

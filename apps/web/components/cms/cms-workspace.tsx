@@ -28,6 +28,14 @@ import {
   calendarItemsFromDrafts,
   sortDraftsReverseChronological,
 } from "@/lib/cms-data";
+import {
+  DRAFT_AUTOSAVE_DELAY_MS,
+  slugDiscriminatorFromDraftID,
+  slugPathDiscriminator,
+  slugPathFromTitle,
+  titleManagedPath,
+  type DraftSaveState,
+} from "@/lib/draft-editor";
 import { loadAccounts, unlinkAccount } from "@/lib/oauth-api";
 import type { Draft, LinkedAccount, Publication } from "@/lib/types";
 import { markdownToPlaintext, validateDraft } from "@/lib/validation";
@@ -42,7 +50,7 @@ export function CmsWorkspace() {
   const activeAccountDID = activeAccount?.did ?? "";
   const [selectedDraftID, setSelectedDraftID] = React.useState("");
   const [isSyncing, setIsSyncing] = React.useState(false);
-  const [isSaving, setIsSaving] = React.useState(false);
+  const [draftSaveStates, setDraftSaveStates] = React.useState<Record<string, DraftSaveState>>({});
   const [isPublishing, setIsPublishing] = React.useState(false);
   const [isLoggingOut, setIsLoggingOut] = React.useState(false);
   const [publicationDraft, setPublicationDraft] = React.useState<Draft | null>(null);
@@ -56,6 +64,9 @@ export function CmsWorkspace() {
   const [draftListTab, setDraftListTab] = React.useState<DraftListTab>("drafts");
   const [draftListGrouping, setDraftListGrouping] = React.useState<DraftListGrouping>("all");
   const [scheduledDate, setScheduledDate] = React.useState<Date | undefined>();
+  const autosaveTimers = React.useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const inFlightSaves = React.useRef(new Map<string, Promise<boolean>>());
+  const editVersions = React.useRef(new Map<string, number>());
   const {
     themePreference,
     fontPreference,
@@ -94,12 +105,22 @@ export function CmsWorkspace() {
   }, [requestAccounts]);
 
   React.useEffect(() => {
+    const timers = autosaveTimers.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
+  React.useEffect(() => {
     if (!activeAccountDID) return;
     const controller = new AbortController();
 
     draftAPI.loadDrafts(activeAccountDID, controller.signal)
       .then((persistedDrafts) => {
         setDrafts(persistedDrafts);
+        editVersions.current = new Map(persistedDrafts.map((draft) => [draft.id, 0]));
+        setDraftSaveStates(Object.fromEntries(persistedDrafts.map((draft) => [draft.id, "saved"])));
         setSelectedDraftID((current) =>
           persistedDrafts.some((draft) => draft.id === current)
             ? current
@@ -175,26 +196,81 @@ export function CmsWorkspace() {
 
   const calendarItems = React.useMemo(() => calendarItemsFromDrafts(drafts), [drafts]);
 
+  function setDraftSaveState(draftID: string, state: DraftSaveState) {
+    setDraftSaveStates((current) => ({ ...current, [draftID]: state }));
+  }
+
+  function clearAutosave(draftID: string) {
+    const timer = autosaveTimers.current.get(draftID);
+    if (timer) clearTimeout(timer);
+    autosaveTimers.current.delete(draftID);
+  }
+
+  async function persistDraftSnapshot(draft: Draft, version: number, notify: boolean) {
+    setDraftSaveState(draft.id, "saving");
+    try {
+      const persisted = await draftAPI.saveDraft(draft);
+      if (editVersions.current.get(draft.id) === version) {
+        setDrafts((current) => current.map((candidate) => candidate.id === persisted.id ? persisted : candidate));
+        setDraftSaveState(draft.id, "saved");
+      } else {
+        setDraftSaveState(draft.id, "unsaved");
+      }
+      if (notify) toast.success("Draft saved");
+      return true;
+    } catch {
+      if (editVersions.current.get(draft.id) === version) {
+        setDraftSaveState(draft.id, "error");
+      }
+      if (notify) toast.error("Could not save draft");
+      return false;
+    }
+  }
+
+  function trackDraftSave(draft: Draft, version: number, notify: boolean) {
+    const save = persistDraftSnapshot(draft, version, notify);
+    inFlightSaves.current.set(draft.id, save);
+    void save.finally(() => {
+      if (inFlightSaves.current.get(draft.id) === save) {
+        inFlightSaves.current.delete(draft.id);
+      }
+    });
+    return save;
+  }
+
+  function scheduleAutosave(draft: Draft, version: number) {
+    clearAutosave(draft.id);
+    const timer = setTimeout(() => {
+      autosaveTimers.current.delete(draft.id);
+      void trackDraftSave(draft, version, false);
+    }, DRAFT_AUTOSAVE_DELAY_MS);
+    autosaveTimers.current.set(draft.id, timer);
+  }
+
   function updateDraft(patch: Partial<Draft>) {
     if (!activeDraft) {
       return;
     }
-    setDrafts((current) =>
-      current.map((draft) => {
-        if (draft.id !== activeDraft.id) {
-          return draft;
-        }
-        const next = {
-          ...draft,
-          ...patch,
-          updatedAt: new Date().toISOString(),
-        };
-        if (patch.markdown !== undefined) {
-          next.plaintext = markdownToPlaintext(patch.markdown);
-        }
-        return next;
-      }),
-    );
+    const generatedPath = patch.title !== undefined && patch.path === undefined && titleManagedPath(activeDraft)
+      ? slugPathFromTitle(
+          patch.title,
+          slugPathDiscriminator(activeDraft.path, activeDraft.title) ?? slugDiscriminatorFromDraftID(activeDraft.id),
+        )
+      : undefined;
+    const next = {
+      ...activeDraft,
+      ...patch,
+      ...(generatedPath ? { path: generatedPath } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    if (patch.markdown !== undefined) {
+      next.plaintext = markdownToPlaintext(patch.markdown);
+    }
+    const version = (editVersions.current.get(activeDraft.id) ?? 0) + 1;
+    editVersions.current.set(activeDraft.id, version);
+    setDrafts((current) => current.map((draft) => draft.id === activeDraft.id ? next : draft));
+    setDraftSaveState(activeDraft.id, "unsaved");
+    scheduleAutosave(next, version);
   }
 
   async function createDraft(publicationURI: string) {
@@ -202,13 +278,14 @@ export function CmsWorkspace() {
     if (!publication) {
       return false;
     }
+    const id = crypto.randomUUID();
     const next: Draft = {
-      id: crypto.randomUUID(),
+      id,
       accountDID: activeAccountDID,
       publicationURI: publication.uri,
       publicationURL: publication.url,
       title: "Untitled article",
-      path: "/untitled-article",
+      path: slugPathFromTitle("Untitled article", slugDiscriminatorFromDraftID(id)),
       excerpt: "",
       tags: [],
       markdown: "",
@@ -220,6 +297,8 @@ export function CmsWorkspace() {
     try {
       const persisted = await draftAPI.createDraft(next);
       setDrafts((current) => [persisted, ...current]);
+      editVersions.current.set(persisted.id, 0);
+      setDraftSaveState(persisted.id, "saved");
       setSearch("");
       setDraftListTab("drafts");
       setSelectedDraftID(persisted.id);
@@ -231,24 +310,17 @@ export function CmsWorkspace() {
   }
 
   async function saveDraft() {
-    if (!activeDraft || isSaving) {
+    if (!activeDraft || draftSaveStates[activeDraft.id] === "saving") {
       return;
     }
-
-    setIsSaving(true);
-    try {
-      const persisted = await draftAPI.saveDraft(activeDraft);
-      setDrafts((current) => current.map((draft) => draft.id === persisted.id ? persisted : draft));
-      toast.success("Draft saved");
-    } catch {
-      toast.error("Could not save draft");
-    } finally {
-      setIsSaving(false);
-    }
+    clearAutosave(activeDraft.id);
+    await trackDraftSave(activeDraft, editVersions.current.get(activeDraft.id) ?? 0, true);
   }
 
   function replaceDraft(persisted: Draft) {
+    clearAutosave(persisted.id);
     setDrafts((current) => current.map((draft) => draft.id === persisted.id ? persisted : draft));
+    setDraftSaveState(persisted.id, "saved");
   }
 
   function beginScheduleEdit(draft: Draft) {
@@ -315,6 +387,8 @@ export function CmsWorkspace() {
     setIsMutatingDraft(true);
     try {
       await draftAPI.deleteDraft(deleteDraftToConfirm.id);
+      clearAutosave(deleteDraftToConfirm.id);
+      editVersions.current.delete(deleteDraftToConfirm.id);
       setDrafts((current) => current.filter((draft) => draft.id !== deleteDraftToConfirm.id));
       setDeleteDraftToConfirm(null);
       toast.success("Post deleted");
@@ -350,6 +424,8 @@ export function CmsWorkspace() {
     }
     setIsMutatingDraft(true);
     try {
+      clearAutosave(activeDraft.id);
+      await inFlightSaves.current.get(activeDraft.id);
       await draftAPI.saveDraft(activeDraft);
       const persisted = await draftAPI.scheduleDraft(activeDraft.id, scheduledDate);
       replaceDraft(persisted);
@@ -371,6 +447,8 @@ export function CmsWorkspace() {
     setIsPublishing(true);
     const isUpdate = activeDraft.status === "published";
     try {
+      clearAutosave(activeDraft.id);
+      await inFlightSaves.current.get(activeDraft.id);
       await draftAPI.saveDraft(activeDraft);
       await draftAPI.publishDraft(activeDraft.id);
       const persisted = await draftAPI.getDraft(activeDraft.id);
@@ -512,7 +590,7 @@ export function CmsWorkspace() {
                 validation={validation.errors}
                 onChange={updateDraft}
                 onSave={saveDraft}
-                isSaving={isSaving}
+                saveState={draftSaveStates[activeDraft.id] ?? "saved"}
               />
             ) : (
               <Empty className="m-4">

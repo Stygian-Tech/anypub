@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import type { DraftSaveState } from "@/lib/draft-editor";
 import type { Draft, DraftStatus } from "@/lib/types";
 
 const statusVariant: Record<DraftStatus, "default" | "secondary" | "outline" | "destructive"> = {
@@ -32,14 +33,22 @@ export function EditorPanel({
   validation,
   onChange,
   onSave,
-  isSaving,
+  saveState,
 }: {
   draft: Draft;
   validation: Record<string, string>;
   onChange: (patch: Partial<Draft>) => void;
   onSave: () => Promise<void>;
-  isSaving: boolean;
+  saveState: DraftSaveState;
 }) {
+  const isSaving = saveState === "saving";
+  const saveStateLabel = {
+    saved: "Saved",
+    unsaved: "Unsaved changes",
+    saving: "Saving…",
+    error: "Autosave failed",
+  }[saveState];
+
   return (
     <section className="flex min-h-0 flex-col">
       <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
@@ -47,10 +56,19 @@ export function EditorPanel({
           <Badge variant={statusVariant[draft.status]}>{draft.status}</Badge>
           <span className="text-muted-foreground text-xs">{draft.path}</span>
         </div>
-        <Button size="sm" onClick={onSave} disabled={isSaving}>
-          <SaveIcon data-icon="inline-start" />
-          {isSaving ? "Saving" : draft.status === "published" ? "Save changes" : "Save"}
-        </Button>
+        <div className="flex items-center gap-3">
+          <span
+            className={saveState === "error" ? "text-destructive text-xs" : "text-muted-foreground text-xs"}
+            role="status"
+            aria-live="polite"
+          >
+            {saveStateLabel}
+          </span>
+          <Button size="sm" onClick={onSave} disabled={isSaving}>
+            <SaveIcon data-icon="inline-start" />
+            {isSaving ? "Saving" : draft.status === "published" ? "Save changes" : "Save"}
+          </Button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex min-h-full max-w-4xl flex-col">

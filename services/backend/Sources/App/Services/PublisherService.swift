@@ -38,6 +38,10 @@ struct PublisherService: Sendable {
             throw Abort(.unprocessableEntity, reason: "The selected publication has no supported content adapter")
         }
 
+        if host == .pckt {
+            draft.path = pcktCompatiblePath(title: draft.title, path: draft.path, draftID: draftID)
+        }
+
         let canonical = try CanonicalDocumentLoader.load(draft: draft)
         let prepared = try PublicationContentAdapter.prepare(document: canonical, host: host)
         let pcktPublicationURI = try await host == .pckt
@@ -365,4 +369,22 @@ struct PublisherService: Sendable {
         try await asset.save(on: req.db)
         return blob
     }
+}
+
+func pcktCompatiblePath(title: String, path: String?, draftID: UUID) -> String {
+    let current = path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let source = current.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    let titleSlug = title.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current).lowercased()
+        .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    let discriminator = draftID.uuidString
+        .replacingOccurrences(of: "-", with: "")
+        .lowercased()
+        .suffix(7)
+    if source.hasSuffix("-\(discriminator)") {
+        return current.hasPrefix("/") ? current : "/\(current)"
+    }
+
+    let base = source.isEmpty ? titleSlug : source
+    return "/\(base.isEmpty ? "untitled-article" : base)-\(discriminator)"
 }

@@ -456,6 +456,11 @@ export function MarkdownBlockEditor({
                         }
                         return;
                       }
+                      if (event.key === "Backspace" && isEmptyListMarkdownBlock(block)) {
+                        event.preventDefault();
+                        exitEmptyListItem(index);
+                        return;
+                      }
                       if (event.key === "Backspace" && !event.currentTarget.value) {
                         if (deleteEmptyBlock(index)) {
                           event.preventDefault();

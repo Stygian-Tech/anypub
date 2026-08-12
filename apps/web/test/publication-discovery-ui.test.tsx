@@ -171,6 +171,72 @@ describe("publication discovery UI", () => {
     );
   });
 
+  it("generates a title path and autosaves the edited draft", async () => {
+    const account = {
+      id: "account-id",
+      did: "did:plc:writer",
+      handle: "writer.example",
+      pdsURL: "https://pds.example",
+      scope: "atproto",
+      linkedAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const publication = {
+      id: "publication-id",
+      accountDID: account.did,
+      uri: `at://${account.did}/site.standard.publication/blog`,
+      name: "Writer Blog",
+      url: "https://writer.example",
+      syncedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const draft: Draft = {
+      id: "draft-id",
+      accountDID: account.did,
+      publicationURI: publication.uri,
+      publicationURL: publication.url,
+      title: "Untitled article",
+      path: "/untitled-article",
+      excerpt: "",
+      tags: [],
+      markdown: "Body",
+      plaintext: "Body",
+      status: "draft",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "PUT" && url.endsWith(`/api/drafts/${draft.id}`)) {
+        const payload = JSON.parse(String(init.body));
+        return Response.json({ ...draft, ...payload, plaintext: draft.plaintext, updatedAt: "2026-08-11T00:00:01.000Z" });
+      }
+      const body = url.endsWith("/api/accounts")
+        ? [account]
+        : url.includes("/api/drafts")
+          ? [draft]
+          : [publication];
+      return Response.json(body);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CmsWorkspace />);
+    const title = await screen.findByLabelText("Title");
+    fireEvent.change(title, { target: { value: "Café News & Notes" } });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Unsaved changes");
+    expect((screen.getByLabelText("Path") as HTMLInputElement).value).toMatch(/^\/cafe-news-notes-[a-z0-9]{7}$/);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:8080/api/drafts/draft-id",
+        expect.objectContaining({
+          method: "PUT",
+          body: expect.stringMatching(/"path":"\/cafe-news-notes-[a-z0-9]{7}"/),
+        }),
+      );
+      expect(screen.getByRole("status")).toHaveTextContent("Saved");
+    }, { timeout: 2_000 });
+  });
+
   it("renders an unavailable publication without substituting another one", () => {
     const draft: Draft = {
       id: "draft-id",
