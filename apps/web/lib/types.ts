@@ -21,7 +21,7 @@ export type Publication = {
   iconURL?: string;
   themeType?: string;
   themeName?: string;
-  host?: "leaflet" | "offprint" | "pckt";
+  host?: "leaflet" | "markpub" | "offprint" | "pckt";
   syncedAt: string;
 };
 

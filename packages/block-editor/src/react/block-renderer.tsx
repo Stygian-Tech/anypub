@@ -4,6 +4,7 @@ import * as React from "react";
 import { SquareCheckIcon, SquareIcon } from "lucide-react";
 import { orderedListOrdinalAt, type BlockDocument, type MarkdownBlock } from "../model";
 import { cn } from "../utils";
+import { SyntaxHighlightedCode } from "./syntax-highlighted-code";
 
 export function BlockDocumentRenderer({
   document,
@@ -42,12 +43,8 @@ export function MarkdownBlockPreview({
   }
 
   if (block.kind === "code") {
-    const code = trimmed.replace(/^```\w*\n?/, "").replace(/\n?```$/, "");
-    return (
-      <pre className="bg-muted overflow-auto rounded-md p-3 text-base leading-7">
-        <code>{code}</code>
-      </pre>
-    );
+    const code = trimmed.replace(/^```[^\n`]*\n?/, "").replace(/\n?```$/, "");
+    return <SyntaxHighlightedCode code={code} language={block.language} />;
   }
 
   if (block.kind === "heading") {

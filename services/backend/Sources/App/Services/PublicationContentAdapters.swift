@@ -3,11 +3,13 @@ import Vapor
 
 enum PublicationContentOffload: Equatable, Sendable {
     case leafletPages(Data)
+    case markpubMarkdown(Data)
     case pcktItems(Data)
 
     var mimeType: String {
         switch self {
         case .leafletPages, .pcktItems: "application/json"
+        case .markpubMarkdown: "text/markdown"
         }
     }
 }
@@ -28,6 +30,17 @@ struct PreparedPublicationContent: Equatable, Sendable {
                 "blobPages": blob.jsonValue,
                 "blobs": .array([]),
             ])
+        case .markpubMarkdown(let data):
+            let markdown = String(decoding: data, as: UTF8.self)
+            return .object([
+                "$type": .string("at.markpub.markdown"),
+                "flavor": .string("gfm"),
+                "text": .object([
+                    "$type": .string("at.markpub.text"),
+                    "markdown": .string(String(markdown.prefix(1_000))),
+                    "textBlob": blob.jsonValue,
+                ]),
+            ])
         case .pcktItems:
             return .object([
                 "$type": .string("blog.pckt.content"),
@@ -46,9 +59,33 @@ enum PublicationContentAdapter {
     ) throws -> PreparedPublicationContent {
         switch host {
         case .leaflet: return try LeafletContentAdapter.prepare(document)
+        case .markpub: return try MarkpubContentAdapter.prepare(document)
         case .offprint: return try OffprintContentAdapter.prepare(document)
         case .pckt: return try PcktContentAdapter.prepare(document, description: description)
         }
+    }
+}
+
+private enum MarkpubContentAdapter {
+    static func prepare(_ document: CanonicalDocument) throws -> PreparedPublicationContent {
+        let data = Data(document.markdown.utf8)
+        guard data.count <= 1_000_000 else {
+            throw Abort(.unprocessableEntity, reason: "Article exceeds Markpub's Markdown blob-size limit")
+        }
+        let content: JSONValue = .object([
+            "$type": .string("at.markpub.markdown"),
+            "flavor": .string("gfm"),
+            "text": .object([
+                "$type": .string("at.markpub.text"),
+                "markdown": .string(document.markdown),
+            ]),
+        ])
+        return PreparedPublicationContent(
+            host: .markpub,
+            content: content,
+            textContent: document.plaintext,
+            offload: data.count > 100 * 1_024 ? .markpubMarkdown(data) : nil
+        )
     }
 }
 
@@ -91,7 +128,7 @@ private enum LeafletContentAdapter {
             return listBlock(list)
         case .code(let language, let source):
             var object: [String: JSONValue] = ["$type": .string("pub.leaflet.blocks.code"), "plaintext": .string(source)]
-            if let language, !language.isEmpty { object["language"] = .string(language) }
+            if let language = normalizedCodeLanguage(language) { object["language"] = .string(language) }
             return .object(object)
         case .thematicBreak:
             return .object(["$type": .string("pub.leaflet.blocks.horizontalRule")])
@@ -168,7 +205,7 @@ private enum OffprintContentAdapter {
             return listBlock(list)
         case .code(let language, let source):
             var object: [String: JSONValue] = ["$type": .string("app.offprint.block.codeBlock"), "code": .string(source)]
-            if let language, !language.isEmpty { object["language"] = .string(language) }
+            if let language = normalizedCodeLanguage(language) { object["language"] = .string(language) }
             return .object(object)
         case .thematicBreak:
             return .object(["$type": .string("app.offprint.block.horizontalRule")])
@@ -272,7 +309,7 @@ private enum PcktContentAdapter {
             return listBlock(list)
         case .code(let language, let source):
             var object: [String: JSONValue] = ["$type": .string("blog.pckt.block.codeBlock"), "plaintext": .string(source)]
-            if let language, !language.isEmpty {
+            if let language = normalizedCodeLanguage(language) {
                 object["language"] = .string(String(decoding: language.utf8.prefix(50), as: UTF8.self))
             }
             return .object(object)
@@ -314,6 +351,11 @@ private enum PcktContentAdapter {
             "content": .array([richText(item.content, type: "blog.pckt.block.text", facetNSID: "blog.pckt.richtext.facet")]),
         ])
     }
+}
+
+private func normalizedCodeLanguage(_ language: String?) -> String? {
+    let normalized = language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    return normalized.isEmpty ? nil : normalized
 }
 
 private func richText(

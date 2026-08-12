@@ -20,6 +20,23 @@ describe("Markdown block preview", () => {
       <MarkdownBlockPreview block={parseMarkdownBlock("```ts\nconst first = 1;\n\nconst second = 2;\n```")} />,
     );
 
-    expect(markup).toContain("const first = 1;\n\nconst second = 2;");
+    expect(markup.replace(/<[^>]+>/g, "")).toBe("const first = 1;\n\nconst second = 2;");
+    expect(markup).toContain('data-highlight-language="typescript"');
+    expect(markup).toContain('class="token keyword"');
+    expect(markup).toContain('class="token number"');
+  });
+
+  it("supports punctuated language aliases and falls back safely for unknown languages", () => {
+    const cppMarkup = renderToStaticMarkup(
+      <MarkdownBlockPreview block={parseMarkdownBlock("```c++\nauto answer = 42;\n```")} />,
+    );
+    const unknownMarkup = renderToStaticMarkup(
+      <MarkdownBlockPreview block={parseMarkdownBlock("```not-a-language\nplain value\n```")} />,
+    );
+
+    expect(cppMarkup).toContain('data-language="c++"');
+    expect(cppMarkup).toContain('data-highlight-language="cpp"');
+    expect(unknownMarkup).toContain('data-highlight-language="plaintext"');
+    expect(unknownMarkup).toContain("plain value");
   });
 });

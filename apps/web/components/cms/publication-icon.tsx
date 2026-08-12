@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FileTextIcon, LeafIcon, NewspaperIcon, NotebookTextIcon } from "lucide-react";
+import { FileCode2Icon, FileTextIcon, LeafIcon, NewspaperIcon, NotebookTextIcon } from "lucide-react";
 import type { Publication } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -16,11 +16,13 @@ export function PublicationIcon({
   const Icon =
     publication.host === "leaflet"
       ? LeafIcon
-      : publication.host === "offprint"
-        ? NewspaperIcon
-        : publication.host === "pckt"
-          ? NotebookTextIcon
-        : FileTextIcon;
+      : publication.host === "markpub"
+        ? FileCode2Icon
+        : publication.host === "offprint"
+          ? NewspaperIcon
+          : publication.host === "pckt"
+            ? NotebookTextIcon
+            : FileTextIcon;
   const showImage = Boolean(publication.iconURL) && publication.iconURL !== failedURL;
 
   return (

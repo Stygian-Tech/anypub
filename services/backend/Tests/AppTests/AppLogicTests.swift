@@ -101,6 +101,8 @@ struct AppLogicTests {
         #expect(PublicationHostDetector.detect(themeType: nil, themeURI: "at://did:plc:test/app.offprint.theme/default", themeName: nil, publicationURL: nil) == .offprint)
         #expect(PublicationHostDetector.detect(themeType: nil, themeName: "Leaflet editorial", publicationURL: nil) == .leaflet)
         #expect(PublicationHostDetector.detect(themeType: "blog.pckt.theme", themeName: nil, publicationURL: "https://offprint.example") == .pckt)
+        #expect(PublicationHostDetector.detect(themeType: nil, themeName: "Markpub Markdown", publicationURL: nil) == .markpub)
+        #expect(PublicationHostDetector.detect(themeType: nil, themeName: nil, publicationURL: "https://roll-your-own.example") == .markpub)
     }
 
     @Test("AT record references parse repo, collection, and rkey")
@@ -271,7 +273,7 @@ struct AppLogicTests {
         let document = CanonicalDocumentLoader.loadMarkdown("""
         ###### Deep heading
 
-        ```swift
+        ```Swift
         let answer = 42
         ```
 
@@ -287,6 +289,7 @@ struct AppLogicTests {
         #expect(items[0].objectValue?["level"] == .integer(3))
         #expect(items[1].objectValue?["$type"] == .string("app.offprint.block.codeBlock"))
         #expect(items[1].objectValue?["code"] == .string("let answer = 42"))
+        #expect(items[1].objectValue?["language"] == .string("swift"))
         #expect(items[2].objectValue?["$type"] == .string("app.offprint.block.taskList"))
         let facets = try #require(items[3].objectValue?["facets"]?.arrayValue)
         let facetTypes = Set(facets.compactMap { $0.objectValue?["features"]?.arrayValue?.first?.objectValue?["$type"]?.stringValue })
@@ -298,6 +301,49 @@ struct AppLogicTests {
             "app.offprint.richtext.facet#underline",
             "app.offprint.richtext.facet#link",
         ])
+    }
+
+    @Test("Markpub adapter preserves the source Markdown in the standard content union")
+    func markpubContent() throws {
+        let markdown = """
+        # Markpub post
+
+        ~~Portable~~ **Markdown** with a fenced block:
+
+        ```swift
+        let answer = 42
+        ```
+        """
+        let document = CanonicalDocumentLoader.loadMarkdown(markdown)
+        let prepared = try PublicationContentAdapter.prepare(document: document, host: .markpub)
+        let content = try #require(prepared.content.objectValue)
+        let text = try #require(content["text"]?.objectValue)
+
+        #expect(prepared.host == .markpub)
+        #expect(content["$type"] == .string("at.markpub.markdown"))
+        #expect(content["flavor"] == .string("gfm"))
+        #expect(text["$type"] == .string("at.markpub.text"))
+        #expect(text["markdown"] == .string(markdown))
+        #expect(prepared.textContent.contains("Markpub post"))
+        #expect(prepared.offload == nil)
+
+        let largeMarkdown = String(repeating: "Portable Markdown. ", count: 7_000)
+        let large = CanonicalDocumentLoader.loadMarkdown(largeMarkdown)
+        let largePrepared = try PublicationContentAdapter.prepare(document: large, host: .markpub)
+        guard case .markpubMarkdown(let payload) = largePrepared.offload else {
+            Issue.record("Expected Markpub Markdown blob offload")
+            return
+        }
+        #expect(payload == Data(largeMarkdown.utf8))
+        #expect(largePrepared.offload?.mimeType == "text/markdown")
+        let blobContent = try #require(largePrepared.replacingOffload(with: ATProtoBlobRef(
+            type: "blob",
+            ref: ATProtoBlobRef.Link(link: "bafk-markdown"),
+            mimeType: "text/markdown",
+            size: payload.count
+        )).objectValue)
+        let blobText = try #require(blobContent["text"]?.objectValue)
+        #expect(blobText["textBlob"]?.objectValue?["mimeType"] == .string("text/markdown"))
     }
 
     @Test("pckt adapter uses blog namespace, recursive lists, and extended mode")

@@ -51,6 +51,7 @@ enum CanonicalBlock: Equatable, Sendable {
 struct CanonicalDocument: Equatable, Sendable {
     let blocks: [CanonicalBlock]
     let plaintext: String
+    let markdown: String
 }
 
 private struct BlockDocumentSnapshot: Decodable {
@@ -110,7 +111,7 @@ enum CanonicalDocumentLoader {
         let normalized = normalize(markdown)
         let sources = splitSources(normalized)
         let blocks = canonicalBlocks(from: sources.map(inferBlock))
-        return CanonicalDocument(blocks: blocks, plaintext: plaintext(from: blocks))
+        return CanonicalDocument(blocks: blocks, plaintext: plaintext(from: blocks), markdown: normalized)
     }
 
     private static func loadSnapshot(
@@ -161,7 +162,7 @@ enum CanonicalDocumentLoader {
             throw Abort(.unprocessableEntity, reason: "Block document Markdown does not match its blocks")
         }
         let blocks = canonicalBlocks(from: snapshot.blocks)
-        return CanonicalDocument(blocks: blocks, plaintext: plaintext(from: blocks))
+        return CanonicalDocument(blocks: blocks, plaintext: plaintext(from: blocks), markdown: markdown)
     }
 
     private static func canonicalBlocks(from sourceBlocks: [BlockDocumentBlock]) -> [CanonicalBlock] {

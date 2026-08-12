@@ -95,7 +95,7 @@ export function parseMarkdownBlock(source: string): MarkdownBlock {
     return { kind: "empty", source };
   }
 
-  const code = trimmed.match(/^```(\w*)\n?[\s\S]*```$/);
+  const code = trimmed.match(/^```([^\s`]*)\n?[\s\S]*```$/);
   if (code) {
     return { kind: "code", source: rawSource, language: code[1] || undefined };
   }

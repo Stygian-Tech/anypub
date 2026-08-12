@@ -353,6 +353,8 @@ struct PublisherService: Sendable {
         switch offload {
         case .leafletPages(let payload):
             data = payload
+        case .markpubMarkdown(let payload):
+            data = payload
         case .pcktItems(let payload):
             data = payload
         }
