@@ -297,6 +297,7 @@ private func facet(_ span: InlineSpan, nsid: String) -> JSONValue? {
     case .italic: feature = ["$type": .string("\(nsid)#italic")]
     case .code: feature = ["$type": .string("\(nsid)#code")]
     case .strikethrough: feature = ["$type": .string("\(nsid)#strikethrough")]
+    case .underline: feature = ["$type": .string("\(nsid)#underline")]
     case .link(let uri): feature = ["$type": .string("\(nsid)#link"), "uri": .string(uri)]
     }
     return .object([

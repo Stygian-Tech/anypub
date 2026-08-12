@@ -6,6 +6,7 @@ enum InlineFeature: Equatable, Sendable {
     case italic
     case code
     case strikethrough
+    case underline
     case link(String)
 }
 
@@ -393,7 +394,7 @@ private enum InlineMarkdown {
                     return
                 }
                 if consumeLink(image: true) || consumeLink(image: false) { continue }
-                if consumeDelimited("**", feature: .bold) || consumeDelimited("__", feature: .bold) || consumeDelimited("~~", feature: .strikethrough) || consumeDelimited("`", feature: .code) || consumeDelimited("*", feature: .italic) || consumeDelimited("_", feature: .italic) { continue }
+                if consumeDelimited("**", feature: .bold) || consumeDelimited("__", feature: .bold) || consumeDelimited("~~", feature: .strikethrough) || consumeDelimited("++", feature: .underline) || consumeDelimited("`", feature: .code) || consumeDelimited("*", feature: .italic) || consumeDelimited("_", feature: .italic) { continue }
                 output.append(source[index])
                 index = source.index(after: index)
             }

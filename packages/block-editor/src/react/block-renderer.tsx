@@ -204,7 +204,7 @@ function renderMarkdownLines(lines: string[]) {
 
 function renderInlineMarkdown(text: string) {
   const nodes: React.ReactNode[] = [];
-  const pattern = /(!?\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_)/g;
+  const pattern = /(!?\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\+\+[^+]+\+\+|\*[^*]+\*|_[^_]+_)/g;
   let lastIndex = 0;
 
   for (const match of text.matchAll(pattern)) {
@@ -258,6 +258,10 @@ function renderInlineToken(token: string, key: number) {
 
   if (token.startsWith("~~")) {
     return <del key={key} className="line-through">{token.slice(2, -2)}</del>;
+  }
+
+  if (token.startsWith("++")) {
+    return <u key={key} className="underline underline-offset-2">{token.slice(2, -2)}</u>;
   }
 
   return <em key={key} className="italic">{token.slice(1, -1)}</em>;

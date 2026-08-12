@@ -267,7 +267,7 @@ struct AppLogicTests {
 
         ---
 
-        **bold** *italic* `code` ~~removed~~ [linked](https://example.com)
+        **bold** *italic* `code` ~~removed~~ ++underlined++ [linked](https://example.com)
         """)
         let prepared = try PublicationContentAdapter.prepare(document: document, host: .pckt)
         let content = try #require(prepared.content.objectValue)
@@ -299,6 +299,7 @@ struct AppLogicTests {
             "blog.pckt.richtext.facet#italic",
             "blog.pckt.richtext.facet#code",
             "blog.pckt.richtext.facet#strikethrough",
+            "blog.pckt.richtext.facet#underline",
             "blog.pckt.richtext.facet#link",
         ])
         let link = inline["facets"]?.arrayValue?.last?.objectValue?["features"]?.arrayValue?.first?.objectValue
