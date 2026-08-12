@@ -31,10 +31,12 @@ export function MarkdownBlockPreview({
   block,
   orderedListOrdinal,
   onToggleTask,
+  resolveAssetURL,
 }: {
   block: MarkdownBlock;
   orderedListOrdinal?: number;
   onToggleTask?: (itemIndex: number) => void;
+  resolveAssetURL?: (assetID: string) => string;
 }) {
   const trimmed = block.source.trim();
 
@@ -45,6 +47,28 @@ export function MarkdownBlockPreview({
   if (block.kind === "code") {
     const code = trimmed.replace(/^```[^\n`]*\n?/, "").replace(/\n?```$/, "");
     return <SyntaxHighlightedCode code={code} language={block.language} />;
+  }
+
+  if (block.kind === "image") {
+    const src = resolveAssetURL?.(block.assetID);
+    return src ? (
+      <figure className="overflow-hidden rounded-md border bg-muted/30">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={block.alt} className="max-h-[34rem] w-full object-contain" />
+        {block.alt ? <figcaption className="text-muted-foreground px-3 py-2 text-xs">{block.alt}</figcaption> : null}
+      </figure>
+    ) : <span className="text-muted-foreground italic">Image: {block.alt || block.assetID}</span>;
+  }
+
+  if (block.kind === "embed") {
+    return (
+      <div className="rounded-md border bg-muted/30 px-4 py-3">
+        <span className="text-muted-foreground block text-xs font-medium uppercase tracking-wide">Embedded link</span>
+        <a href={block.url} className="mt-1 block truncate underline underline-offset-2" onClick={(event) => event.preventDefault()}>
+          {block.url}
+        </a>
+      </div>
+    );
   }
 
   if (block.kind === "heading") {

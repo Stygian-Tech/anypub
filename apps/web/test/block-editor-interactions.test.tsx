@@ -24,4 +24,40 @@ describe("block editor list interactions", () => {
     expect(screen.queryByTestId("markdown-editing-list-marker")).not.toBeInTheDocument();
     expect(screen.getByTestId("markdown-block-textarea")).toHaveValue("");
   });
+
+  it("keeps syntax highlighting visible while a fenced code block is active", () => {
+    render(
+      <MarkdownBlockEditor
+        value={"```typescript\nconst answer = 42;\n```"}
+        invalid={false}
+        onChange={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("markdown-block-preview"));
+
+    expect(screen.getByTestId("syntax-highlighted-code")).toHaveAttribute("data-highlight-language", "typescript");
+    expect(screen.getByText("const", { selector: ".token.keyword" })).toBeInTheDocument();
+    expect(screen.getByTestId("markdown-block-textarea")).toBeInTheDocument();
+  });
+
+  it("turns a pasted standalone URL into a link whose text is the URL", () => {
+    const onChange = vi.fn();
+    render(
+      <MarkdownBlockEditor
+        value={"Paste here"}
+        invalid={false}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("markdown-block-preview"));
+    const editor = screen.getByTestId("markdown-block-textarea") as HTMLTextAreaElement;
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+
+    fireEvent.paste(editor, {
+      clipboardData: { getData: () => "https://example.com/article" },
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith("Paste here[https://example.com/article](https://example.com/article)");
+  });
 });

@@ -373,6 +373,53 @@ struct AppLogicTests {
         #expect(largePrepared.offload?.mimeType == "application/json")
     }
 
+    @Test("Body images and embeds map to each host's native content schema")
+    func bodyImageAndEmbedMapping() throws {
+        let assetID = try #require(UUID(uuidString: "d9428888-122b-11e1-b85c-61cd3cbb3210"))
+        let document = CanonicalDocumentLoader.loadMarkdown("""
+        ![Diagram](anypub-asset://\(assetID.uuidString))
+
+        @[embed](https://example.com/article)
+        """)
+        let image = PublishedBodyImage(
+            assetID: assetID,
+            blob: ATProtoBlobRef(
+                type: "blob",
+                ref: .init(link: "bafkreibodyimage"),
+                mimeType: "image/png",
+                size: 512
+            ),
+            alt: "Diagram",
+            width: 1200,
+            height: 630,
+            publicURL: "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aexample&cid=bafkreibodyimage"
+        )
+
+        let leaflet = try PublicationContentAdapter.prepare(document: document, host: .leaflet, images: [image])
+        let leafletBlocks = try #require(leaflet.content.objectValue?["pages"]?.arrayValue?.first?.objectValue?["blocks"]?.arrayValue)
+        #expect(leafletBlocks[0].objectValue?["block"]?.objectValue?["$type"] == .string("pub.leaflet.blocks.image"))
+        #expect(leafletBlocks[1].objectValue?["block"]?.objectValue?["$type"] == .string("pub.leaflet.blocks.website"))
+
+        let offprint = try PublicationContentAdapter.prepare(document: document, host: .offprint, images: [image])
+        let offprintItems = try #require(offprint.content.objectValue?["items"]?.arrayValue)
+        #expect(offprintItems[0].objectValue?["$type"] == .string("app.offprint.block.image"))
+        #expect(offprintItems[0].objectValue?["aspectRatio"]?.objectValue?["width"] == .integer(1200))
+        #expect(offprintItems[1].objectValue?["$type"] == .string("app.offprint.block.webEmbed"))
+
+        let pckt = try PublicationContentAdapter.prepare(document: document, host: .pckt, images: [image])
+        let pcktItems = try #require(pckt.content.objectValue?["items"]?.arrayValue)
+        #expect(pcktItems[0].objectValue?["$type"] == .string("blog.pckt.block.image"))
+        #expect(pcktItems[0].objectValue?["attrs"]?.objectValue?["src"] == .string("blob:bafkreibodyimage"))
+        #expect(pcktItems[1].objectValue?["$type"] == .string("blog.pckt.block.website"))
+
+        let markpub = try PublicationContentAdapter.prepare(document: document, host: .markpub, images: [image])
+        let markpubMarkdown = try #require(markpub.content.objectValue?["text"]?.objectValue?["markdown"]?.stringValue)
+        #expect(markpubMarkdown.contains(image.publicURL))
+        #expect(markpubMarkdown.contains("[https://example.com/article](https://example.com/article)"))
+        #expect(!markpubMarkdown.contains("anypub-asset://"))
+        #expect(!markpubMarkdown.contains("@[embed]"))
+    }
+
     @Test("pckt content maps Markdown blocks and inline tags to native extensions")
     func pcktMarkdownMapping() throws {
         let document = CanonicalDocumentLoader.loadMarkdown("""

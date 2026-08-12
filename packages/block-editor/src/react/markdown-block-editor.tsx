@@ -32,33 +32,43 @@ import {
   reindexAfterMove,
 } from "./block-drag";
 
-export function BlockEditor({
-  document,
-  invalid = false,
-  onChange,
-}: {
+export type BlockEditorHandle = {
+  insertBlock: (markdown: string) => void;
+};
+
+export const BlockEditor = React.forwardRef<BlockEditorHandle, {
   document: BlockDocument;
   invalid?: boolean;
   onChange: (document: BlockDocument) => void;
-}) {
+  resolveAssetURL?: (assetID: string) => string;
+}>(function BlockEditor({
+  document,
+  invalid = false,
+  onChange,
+  resolveAssetURL,
+}, ref) {
   return (
     <MarkdownBlockEditor
+      ref={ref}
       value={document.markdown}
       invalid={invalid}
+      resolveAssetURL={resolveAssetURL}
       onChange={(markdown) => onChange(reviseMarkdownDocument(document, markdown))}
     />
   );
-}
+});
 
-export function MarkdownBlockEditor({
-  value,
-  invalid,
-  onChange,
-}: {
+export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
   value: string;
   invalid: boolean;
   onChange: (markdown: string) => void;
-}) {
+  resolveAssetURL?: (assetID: string) => string;
+}>(function MarkdownBlockEditor({
+  value,
+  invalid,
+  onChange,
+  resolveAssetURL,
+}, ref) {
   const [blocks, setBlocks] = React.useState(() => parseMarkdownBlocks(value));
   const [activeBlockIndex, setActiveBlockIndex] = React.useState<number | null>(null);
   const [draggedBlockIndex, setDraggedBlockIndex] = React.useState<number | null>(null);
@@ -118,6 +128,18 @@ export function MarkdownBlockEditor({
     onChange(joinMarkdownBlocks(nextBlocks));
     setActiveBlockIndex(insertAt);
   }
+
+  React.useImperativeHandle(ref, () => ({
+    insertBlock(markdown: string) {
+      const compactedBlocks = compactMarkdownBlocks(blocks);
+      const insertAt = activeBlockIndex === null ? compactedBlocks.length : Math.min(activeBlockIndex + 1, compactedBlocks.length);
+      const nextBlocks = [...compactedBlocks];
+      nextBlocks.splice(insertAt, 0, parseMarkdownBlock(markdown));
+      setBlocks(nextBlocks);
+      onChange(joinMarkdownBlocks(nextBlocks));
+      setActiveBlockIndex(null);
+    },
+  }), [activeBlockIndex, blocks, onChange]);
 
   function updateBlock(index: number, nextValue: string) {
     updateParsedBlock(index, parseMarkdownBlock(nextValue));
@@ -407,8 +429,17 @@ export function MarkdownBlockEditor({
                 onMove={moveBlock}
               />
               {isActive ? (
-                <div className="bg-accent/70 flex min-w-0 flex-1 cursor-text items-start gap-2.5 rounded-md pl-1 transition-colors">
-                  {isListItem ? (
+                <div
+                  className={cn(
+                    "bg-accent/70 flex min-w-0 flex-1 cursor-text items-start gap-2.5 rounded-md pl-1 transition-colors",
+                    block.kind === "code" && "flex-col gap-0 p-2",
+                  )}
+                >
+                  {block.kind === "code" ? (
+                    <div className="pointer-events-none w-full" aria-hidden="true">
+                      <MarkdownBlockPreview block={block} resolveAssetURL={resolveAssetURL} />
+                    </div>
+                  ) : isListItem ? (
                     <MarkdownListEditingMarker block={block} orderedListOrdinal={orderedListOrdinal} />
                   ) : null}
                   <InlineMarkdownBlockTextarea
@@ -418,6 +449,18 @@ export function MarkdownBlockEditor({
                     initialCaret={pendingCaret}
                     onBlur={deleteEmptyBlocks}
                     onChange={(nextValue) => updateBlock(index, editorPrefix + nextValue)}
+                    onPaste={(event) => {
+                      if (block.kind === "code") return;
+                      const url = event.clipboardData.getData("text/plain").trim();
+                      if (!/^https?:\/\/\S+$/i.test(url)) return;
+                      event.preventDefault();
+                      const target = event.currentTarget;
+                      const insertion = `[${url}](${url})`;
+                      const nextValue = `${target.value.slice(0, target.selectionStart)}${insertion}${target.value.slice(target.selectionEnd)}`;
+                      updateBlock(index, editorPrefix + nextValue);
+                      const caret = target.selectionStart + insertion.length;
+                      target.ownerDocument.defaultView?.requestAnimationFrame(() => target.setSelectionRange(caret, caret));
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Tab") {
                         event.preventDefault();
@@ -479,7 +522,7 @@ export function MarkdownBlockEditor({
                         insertBlockBreak(index, event, editorPrefix.length);
                       }
                     }}
-                    compact={isListItem}
+                    compact={isListItem || block.kind === "code"}
                   />
                 </div>
               ) : (
@@ -493,11 +536,12 @@ export function MarkdownBlockEditor({
                     invalid && !block.source.trim() && "ring-destructive/35 ring-1",
                   )}
                 >
-                  <MarkdownBlockPreview
-                    block={block}
-                    orderedListOrdinal={orderedListOrdinal}
-                    onToggleTask={(lineIndex) => toggleTaskItem(index, lineIndex)}
-                  />
+                      <MarkdownBlockPreview
+                        block={block}
+                        orderedListOrdinal={orderedListOrdinal}
+                        onToggleTask={(lineIndex) => toggleTaskItem(index, lineIndex)}
+                        resolveAssetURL={resolveAssetURL}
+                      />
                 </button>
               )}
               </div>
@@ -533,4 +577,4 @@ export function MarkdownBlockEditor({
       {invalid ? <FieldDescription>Markdown body is required.</FieldDescription> : null}
     </Field>
   );
-}
+});

@@ -53,6 +53,18 @@ export type Draft = {
   updatedAt: string;
 };
 
+export type CoverAsset = {
+  id: string;
+  accountDID: string;
+  source: string;
+  mimeType: string;
+  byteSize: number;
+  altText?: string;
+  width?: number;
+  height?: number;
+  createdAt: string;
+};
+
 export type CalendarItem = {
   draftID: string;
   title: string;

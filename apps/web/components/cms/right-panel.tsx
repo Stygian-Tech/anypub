@@ -1,7 +1,9 @@
 "use client";
 
+import * as React from "react";
 import { format, parseISO } from "date-fns";
 import { CalendarDaysIcon, ClockIcon, ImageIcon } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -13,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
+import { uploadImage } from "@/lib/asset-api";
 import { calendarItemsFromDrafts } from "@/lib/cms-data";
 import type { Draft, DraftStatus, Publication } from "@/lib/types";
 
@@ -26,6 +29,33 @@ const statusVariant: Record<DraftStatus, "default" | "secondary" | "outline" | "
 const sideTabsListClassName = "grid w-full grid-cols-3 gap-1 p-1";
 const sideTabsTriggerClassName = "min-w-0 px-1 text-center leading-none";
 const sideTabsTriggerStyle = { fontSize: "clamp(0.75rem, 0.95vw, 0.875rem)" };
+
+function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (tags: string[]) => void }) {
+  const [value, setValue] = React.useState(() => tags.join(", "));
+
+  function commit() {
+    const committedTags = [...new Set(value.split(",").map((tag) => tag.trim()).filter(Boolean))];
+    setValue(committedTags.join(", "));
+    onCommit(committedTags);
+  }
+
+  return (
+    <Input
+      id="tags"
+      value={value}
+      placeholder="release, accessibility, updates"
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
 
 export function RightPanel({
   draft,
@@ -44,6 +74,24 @@ export function RightPanel({
   onSchedule: () => void;
   onDraftChange: (patch: Partial<Draft>) => void;
 }) {
+  const coverInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploadingCover, setUploadingCover] = React.useState(false);
+
+  async function uploadCover(file?: File) {
+    if (!draft || !file) return;
+    setUploadingCover(true);
+    try {
+      const asset = await uploadImage(draft.accountDID, file, file.name.replace(/\.[^.]+$/, ""));
+      onDraftChange({ coverAssetID: asset.id });
+      toast.success("Cover image uploaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not upload cover image");
+    } finally {
+      setUploadingCover(false);
+      if (coverInputRef.current) coverInputRef.current.value = "";
+    }
+  }
+
   return (
     <aside className="hidden min-h-0 border-l xl:flex xl:flex-col">
       <Tabs defaultValue="metadata" className="min-h-0 flex-1">
@@ -105,15 +153,7 @@ export function RightPanel({
               </Field>
               <Field>
                 <FieldLabel htmlFor="tags">Tags</FieldLabel>
-                <Input
-                  id="tags"
-                  value={draft.tags.join(", ")}
-                  onChange={(event) =>
-                    onDraftChange({
-                      tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean),
-                    })
-                  }
-                />
+                <TagInput key={draft.id} tags={draft.tags} onCommit={(tags) => onDraftChange({ tags })} />
               </Field>
               <Card>
                 <CardHeader>
@@ -121,11 +161,20 @@ export function RightPanel({
                     <ImageIcon />
                     Cover
                   </CardTitle>
-                  <CardDescription>Device upload and Unsplash covers publish as `coverImage` blobs.</CardDescription>
+                  <CardDescription>Upload a cover image to publish it as a `coverImage` blob.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex gap-2">
-                  <Button variant="outline" size="sm">Upload</Button>
-                  <Button variant="outline" size="sm">Unsplash</Button>
+                  <input
+                    ref={coverInputRef}
+                    className="sr-only"
+                    type="file"
+                    accept="image/*"
+                    aria-label="Choose cover image"
+                    onChange={(event) => void uploadCover(event.target.files?.[0])}
+                  />
+                  <Button variant="outline" size="sm" disabled={uploadingCover} onClick={() => coverInputRef.current?.click()}>
+                    {uploadingCover ? "Uploading…" : draft.coverAssetID ? "Replace" : "Upload"}
+                  </Button>
                 </CardContent>
               </Card>
             </FieldGroup>

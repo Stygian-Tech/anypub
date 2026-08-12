@@ -270,6 +270,40 @@ describe("publication discovery UI", () => {
     expect(screen.getByText(draft.publicationURI)).toBeInTheDocument();
   });
 
+  it("preserves comma-separated tag entry and commits every tag", () => {
+    const draft: Draft = {
+      id: "draft-id",
+      accountDID: "did:plc:writer",
+      publicationURI: "at://did:plc:writer/site.standard.publication/blog",
+      publicationURL: "https://writer.example",
+      title: "Tagged draft",
+      tags: ["release"],
+      markdown: "Body",
+      plaintext: "Body",
+      status: "draft",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const onDraftChange = vi.fn();
+    render(
+      <RightPanel
+        draft={draft}
+        calendarItems={[]}
+        onScheduledDate={() => {}}
+        onSchedule={() => {}}
+        onDraftChange={onDraftChange}
+      />,
+    );
+    const input = screen.getByLabelText("Tags");
+
+    fireEvent.change(input, { target: { value: "release, accessibility, release" } });
+    expect(input).toHaveValue("release, accessibility, release");
+    fireEvent.blur(input);
+
+    expect(input).toHaveValue("release, accessibility");
+    expect(onDraftChange).toHaveBeenCalledWith({ tags: ["release", "accessibility"] });
+  });
+
   it("warns that externally published pckt posts will not appear on the site", () => {
     const publication: Publication = {
       id: "pckt-publication",

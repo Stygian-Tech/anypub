@@ -62,4 +62,14 @@ describe("block document snapshots", () => {
     expect(shouldInsertCodeBlockSoftBreak(closed, closed.source.indexOf("let value"))).toBe(true);
     expect(shouldInsertCodeBlockSoftBreak(closed, closed.source.length)).toBe(false);
   });
+
+  it("round-trips uploaded images and embedded links as typed blocks", () => {
+    const assetID = "d9428888-122b-11e1-b85c-61cd3cbb3210";
+    const markdown = `![Diagram](anypub-asset://${assetID})\n\n@[embed](https://example.com/article)`;
+    const document = importMarkdownDocument(markdown, { createID: ids() });
+
+    expect(document.blocks[0]).toMatchObject({ kind: "image", assetID, alt: "Diagram" });
+    expect(document.blocks[1]).toMatchObject({ kind: "embed", url: "https://example.com/article" });
+    expect(document.markdown).toBe(markdown);
+  });
 });

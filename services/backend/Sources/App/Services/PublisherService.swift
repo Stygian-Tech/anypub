@@ -54,10 +54,17 @@ struct PublisherService: Sendable {
         }
 
         let canonical = try CanonicalDocumentLoader.load(draft: draft)
+        let bodyImages = try await publishedBodyImages(
+            for: canonical,
+            draft: draft,
+            account: account,
+            req: req
+        )
         let prepared = try PublicationContentAdapter.prepare(
             document: canonical,
             host: host,
-            description: host == .pckt ? draft.excerpt : nil
+            description: host == .pckt ? draft.excerpt : nil,
+            images: bodyImages
         )
         let pcktPublicationURI = try await host == .pckt
             ? pcktVerifier.verify(
@@ -380,6 +387,44 @@ struct PublisherService: Sendable {
               let asset = try await CoverAsset.find(coverAssetID, on: req.db)
         else { return nil }
 
+        guard asset.accountDID == draft.accountDID else {
+            throw Abort(.forbidden, reason: "The selected cover image belongs to another account")
+        }
+
+        return try await blob(for: asset, account: account, req: req)
+    }
+
+    private func publishedBodyImages(
+        for document: CanonicalDocument,
+        draft: Draft,
+        account: LinkedAccount,
+        req: Request
+    ) async throws -> [PublishedBodyImage] {
+        var result: [PublishedBodyImage] = []
+        var seen: Set<UUID> = []
+        for block in document.blocks {
+            guard case .image(let assetID, let alt) = block, seen.insert(assetID).inserted else { continue }
+            guard let asset = try await CoverAsset.find(assetID, on: req.db) else {
+                throw Abort(.unprocessableEntity, reason: "A body image no longer exists")
+            }
+            guard asset.accountDID == draft.accountDID else {
+                throw Abort(.forbidden, reason: "A body image belongs to another account")
+            }
+            let uploadedBlob = try await blob(for: asset, account: account, req: req)
+            result.append(PublishedBodyImage(
+                assetID: assetID,
+                blob: uploadedBlob,
+                alt: alt,
+                width: asset.width ?? 1,
+                height: asset.height ?? 1,
+                publicURL: try publicBlobURL(account: account, blob: uploadedBlob)
+            ))
+        }
+        return result
+    }
+
+    private func blob(for asset: CoverAsset, account: LinkedAccount, req: Request) async throws -> ATProtoBlobRef {
+
         if let blobJSON = asset.blobJSON,
            let data = blobJSON.data(using: .utf8),
            let blob = try? JSONDecoder().decode(ATProtoBlobRef.self, from: data) {
@@ -398,6 +443,21 @@ struct PublisherService: Sendable {
         asset.blobJSON = String(decoding: try JSONEncoder().encode(blob), as: UTF8.self)
         try await asset.save(on: req.db)
         return blob
+    }
+
+    private func publicBlobURL(account: LinkedAccount, blob: ATProtoBlobRef) throws -> String {
+        guard var components = URLComponents(string: account.pdsURL) else {
+            throw Abort(.internalServerError, reason: "The account PDS URL is invalid")
+        }
+        components.path = "/xrpc/com.atproto.sync.getBlob"
+        components.queryItems = [
+            URLQueryItem(name: "did", value: account.did),
+            URLQueryItem(name: "cid", value: blob.ref.link),
+        ]
+        guard let url = components.url?.absoluteString else {
+            throw Abort(.internalServerError, reason: "Could not create the published image URL")
+        }
+        return url
     }
 }
 

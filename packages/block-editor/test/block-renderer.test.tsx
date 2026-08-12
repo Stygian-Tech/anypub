@@ -39,4 +39,19 @@ describe("Markdown block preview", () => {
     expect(unknownMarkup).toContain('data-highlight-language="plaintext"');
     expect(unknownMarkup).toContain("plain value");
   });
+
+  it("renders uploaded images and embed choices in the editor", () => {
+    const image = parseMarkdownBlock("![Diagram](anypub-asset://d9428888-122b-11e1-b85c-61cd3cbb3210)");
+    const imageMarkup = renderToStaticMarkup(
+      <MarkdownBlockPreview block={image} resolveAssetURL={(assetID) => `/api/assets/${assetID}/content`} />,
+    );
+    const embedMarkup = renderToStaticMarkup(
+      <MarkdownBlockPreview block={parseMarkdownBlock("@[embed](https://example.com/article)")} />,
+    );
+
+    expect(imageMarkup).toContain('src="/api/assets/d9428888-122b-11e1-b85c-61cd3cbb3210/content"');
+    expect(imageMarkup).toContain('alt="Diagram"');
+    expect(embedMarkup).toContain("Embedded link");
+    expect(embedMarkup).toContain("https://example.com/article");
+  });
 });

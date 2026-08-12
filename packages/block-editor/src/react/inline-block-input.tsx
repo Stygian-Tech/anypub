@@ -13,6 +13,7 @@ export function InlineMarkdownBlockTextarea({
   onBlur,
   onChange,
   onKeyDown,
+  onPaste,
 }: {
   id: string;
   value: string;
@@ -22,6 +23,7 @@ export function InlineMarkdownBlockTextarea({
   onBlur: () => void;
   onChange: (value: string) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste?: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
 }) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const initialCaretApplied = React.useRef(false);
@@ -59,6 +61,7 @@ export function InlineMarkdownBlockTextarea({
       onBlur={onBlur}
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={onKeyDown}
+      onPaste={onPaste}
       className={cn(
         "min-h-0 min-w-0 flex-1 resize-none overflow-hidden rounded-none border-0 bg-transparent pr-3 pl-0 !text-base !leading-7 shadow-none focus-visible:ring-0",
         compact ? "py-0" : "py-2",
@@ -132,4 +135,3 @@ function mapPreviewOffsetToSourceOffset(source: string, previewText: string, pre
 
   return sourceIndex;
 }
-
