@@ -16,9 +16,10 @@ struct DraftController: RouteCollection {
     }
 
     func list(req: Request) async throws -> [DraftResponse] {
-        var query = Draft.query(on: req.db)
-        if let accountDID = try? req.query.get(String.self, at: "accountDID") {
-            query = query.filter(\.$accountDID, .equal, accountDID)
+        let account = try await req.authenticatedContext().account
+        var query = Draft.query(on: req.db).filter(\.$accountDID, .equal, account.did)
+        if let claimedDID = try? req.query.get(String.self, at: "accountDID"), claimedDID != account.did {
+            throw Abort(.forbidden, reason: "The requested account does not belong to this session")
         }
         if let publicationURI = try? req.query.get(String.self, at: "publicationURI") {
             query = query.filter(\.$publicationURI, .equal, publicationURI)
@@ -28,6 +29,9 @@ struct DraftController: RouteCollection {
 
     func create(req: Request) async throws -> DraftResponse {
         let input = try req.content.decode(UpsertDraftRequest.self)
+        let account = try await req.requireAccountDID(input.accountDID)
+        try requirePublicationOwnership(input.publicationURI, accountDID: account.did)
+        try await requireAssetOwnership(input.coverAssetID, accountDID: account.did, req: req)
         try CanonicalDocumentLoader.validateSnapshot(
             input.blockDocumentJSON,
             markdown: input.markdown,
@@ -59,16 +63,18 @@ struct DraftController: RouteCollection {
     func update(req: Request) async throws -> DraftResponse {
         let draft = try await findDraft(req: req)
         let input = try req.content.decode(UpsertDraftRequest.self)
+        let account = try await req.requireAccountDID(input.accountDID)
+        try requirePublicationOwnership(input.publicationURI, accountDID: account.did)
+        try await requireAssetOwnership(input.coverAssetID, accountDID: account.did, req: req)
         try CanonicalDocumentLoader.validateSnapshot(
             input.blockDocumentJSON,
             markdown: input.markdown,
             expectedSchemaVersion: input.blockSchemaVersion,
             expectedRevision: input.blockRevision
         )
-        if draft.accountDID != input.accountDID || draft.publicationURI != input.publicationURI {
+        if draft.publicationURI != input.publicationURI {
             draft.discardRetainedPublishingIdentity()
         }
-        draft.accountDID = input.accountDID
         draft.publicationURI = input.publicationURI
         draft.publicationURL = input.publicationURL
         draft.title = input.title
@@ -111,6 +117,7 @@ struct DraftController: RouteCollection {
             throw Abort(.conflict, reason: "Only drafts can change publication")
         }
         let input = try req.content.decode(ChangeDraftPublicationRequest.self)
+        try requirePublicationOwnership(input.publicationURI, accountDID: draft.accountDID)
         if draft.publicationURI != input.publicationURI {
             draft.discardRetainedPublishingIdentity()
         }
@@ -155,10 +162,32 @@ struct DraftController: RouteCollection {
     }
 
     private func findDraft(req: Request) async throws -> Draft {
+        let account = try await req.authenticatedContext().account
         guard let id = req.parameters.get("id", as: UUID.self),
-              let draft = try await Draft.find(id, on: req.db)
+              let draft = try await Draft.query(on: req.db)
+                .filter(\.$id, .equal, id)
+                .filter(\.$accountDID, .equal, account.did)
+                .first()
         else { throw Abort(.notFound) }
         return draft
+    }
+
+    private func requirePublicationOwnership(_ uri: String, accountDID: String) throws {
+        let reference = try ATRecordReference(uri: uri)
+        guard reference.repo == accountDID, reference.collection == "site.standard.publication" else {
+            throw Abort(.forbidden, reason: "The selected publication does not belong to this account")
+        }
+    }
+
+    private func requireAssetOwnership(_ assetID: UUID?, accountDID: String, req: Request) async throws {
+        guard let assetID else { return }
+        guard try await CoverAsset.query(on: req.db)
+            .filter(\.$id, .equal, assetID)
+            .filter(\.$accountDID, .equal, accountDID)
+            .first() != nil
+        else {
+            throw Abort(.unprocessableEntity, reason: "The selected image does not belong to this account")
+        }
     }
 }
 

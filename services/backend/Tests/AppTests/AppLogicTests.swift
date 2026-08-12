@@ -649,7 +649,10 @@ struct AppLogicTests {
     @Test("Draft API seeds, creates, and persists edits")
     func draftPersistence() async throws {
         try await withApp(configure: configure) { app in
-            try await app.testing().test(.GET, "/api/drafts?accountDID=did%3Aplc%3Awriter") { response in
+            let cookie = try await authenticatedCookie(for: "did:plc:writer", app: app)
+            try await app.testing().test(.GET, "/api/drafts?accountDID=did%3Aplc%3Awriter") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
+            } afterResponse: { response in
                 #expect(response.status == .ok)
                 expectContent([DraftResponse].self, response) { drafts in
                     #expect(drafts.count == 9)
@@ -668,6 +671,7 @@ struct AppLogicTests {
                 coverAssetID: nil
             )
             try await app.testing().test(.POST, "/api/drafts") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
                 try request.content.encode(create)
             } afterResponse: { response in
                 #expect(response.status == .ok)
@@ -692,6 +696,7 @@ struct AppLogicTests {
                 coverAssetID: nil
             )
             try await app.testing().test(.PUT, "/api/drafts/\(draftID)") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
                 try request.content.encode(update)
             } afterResponse: { response in
                 #expect(response.status == .ok)
@@ -710,6 +715,7 @@ struct AppLogicTests {
                 publicationURL: "https://field.example.com"
             )
             try await app.testing().test(.PATCH, "/api/drafts/\(draftID)/publication") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
                 try request.content.encode(publication)
             } afterResponse: { response in
                 #expect(response.status == .ok)
@@ -717,11 +723,14 @@ struct AppLogicTests {
 
             let scheduledAt = Date().addingTimeInterval(3_600)
             try await app.testing().test(.POST, "/api/drafts/\(draftID)/schedule") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
                 try request.content.encode(ScheduleDraftRequest(scheduledAt: scheduledAt))
             } afterResponse: { response in
                 #expect(response.status == .ok)
             }
-            try await app.testing().test(.POST, "/api/drafts/\(draftID)/revert") { response in
+            try await app.testing().test(.POST, "/api/drafts/\(draftID)/revert") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
+            } afterResponse: { response in
                 #expect(response.status == .ok)
             }
 
@@ -735,11 +744,136 @@ struct AppLogicTests {
     @Test("API errors retain CORS headers")
     func apiErrorsRetainCORSHeaders() async throws {
         try await withApp(configure: configure) { app in
+            let cookie = try await authenticatedCookie(for: "did:plc:writer", app: app)
             try await app.testing().test(.POST, "/api/drafts/00000000-0000-0000-0000-000000000000/publish") { request in
                 request.headers.replaceOrAdd(name: .origin, value: "http://localhost:3000")
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
             } afterResponse: { response in
                 #expect(response.status == .notFound)
                 #expect(response.headers.first(name: .accessControlAllowOrigin) == "http://localhost:3000")
+            }
+        }
+    }
+
+    @Test("API requires a browser-bound authenticated session")
+    func apiRequiresBrowserSession() async throws {
+        try await withApp(configure: configure) { app in
+            try await app.testing().test(.GET, "/api/accounts") { response in
+                #expect(response.status == .unauthorized)
+            }
+        }
+    }
+
+    @Test("Authenticated API routes isolate accounts and owned records")
+    func apiIsolatesAccounts() async throws {
+        try await withApp(configure: configure) { app in
+            let aliceDID = "did:plc:alice"
+            let bobDID = "did:plc:bob"
+            let aliceCookie = try await authenticatedCookie(for: aliceDID, app: app)
+            _ = try await authenticatedCookie(for: bobDID, app: app)
+
+            let bobPublication = PublicationCache(
+                accountDID: bobDID,
+                uri: "at://\(bobDID)/site.standard.publication/blog",
+                cid: "bafybob",
+                name: "Bob's publication",
+                url: "https://bob.example",
+                publicationDescription: nil,
+                iconCID: nil,
+                themeType: nil,
+                themeName: nil
+            )
+            try await bobPublication.save(on: app.db)
+            let bobDraft = try Draft(
+                accountDID: bobDID,
+                publicationURI: bobPublication.uri,
+                publicationURL: bobPublication.url,
+                title: "Bob's private draft",
+                path: "/private",
+                excerpt: nil,
+                tags: [],
+                markdown: "Private"
+            )
+            try await bobDraft.save(on: app.db)
+            let bobDraftID = try bobDraft.requireID()
+            let bobAsset = CoverAsset(
+                accountDID: bobDID,
+                source: .device,
+                filePath: "/tmp/anypub-bob-private-image",
+                mimeType: "image/png",
+                byteSize: 1,
+                altText: nil,
+                attributionJSON: nil
+            )
+            try await bobAsset.save(on: app.db)
+            let bobAssetID = try bobAsset.requireID()
+
+            try await app.testing().test(.GET, "/api/accounts") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: aliceCookie)
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+                expectContent([AccountResponse].self, response) { accounts in
+                    #expect(accounts.map(\.did) == [aliceDID])
+                }
+            }
+
+            try await app.testing().test(.GET, "/api/publications?accountDID=\(bobDID)") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: aliceCookie)
+            } afterResponse: { response in
+                #expect(response.status == .forbidden)
+            }
+
+            try await app.testing().test(.GET, "/api/drafts/\(bobDraftID)") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: aliceCookie)
+            } afterResponse: { response in
+                #expect(response.status == .notFound)
+            }
+
+            try await app.testing().test(.GET, "/api/assets/\(bobAssetID)/content") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: aliceCookie)
+            } afterResponse: { response in
+                #expect(response.status == .notFound)
+            }
+
+            try await app.testing().test(.DELETE, "/api/accounts/\(bobDID)") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: aliceCookie)
+            } afterResponse: { response in
+                #expect(response.status == .forbidden)
+            }
+        }
+    }
+
+    @Test("OAuth callback rejects state created by another browser session")
+    func oauthCallbackRequiresOriginatingBrowserSession() async throws {
+        try await withApp(configure: configure) { app in
+            let firstCookie = try await authenticatedCookie(for: "did:plc:first", app: app)
+            let secondCookie = try await authenticatedCookie(for: "did:plc:second", app: app)
+            let firstToken = String(firstCookie.dropFirst("\(BrowserSessionService.cookieName)=".count))
+            let firstSession = try #require(await BrowserSession.query(on: app.db)
+                .filter(\.$tokenHash, .equal, BrowserSessionService.hash(firstToken))
+                .first())
+            let state = OAuthStateRecord(
+                state: "browser-bound-state",
+                handle: "first.example",
+                codeVerifier: "plain:verifier",
+                redirectURL: "http://localhost:3000",
+                authorizationServer: "https://auth.example",
+                tokenEndpoint: "https://auth.example/token",
+                pdsURL: "https://pds.example",
+                dpopKeyJSON: "plain:{}",
+                expectedDID: "did:plc:first",
+                browserSessionID: try firstSession.requireID(),
+                expiresAt: Date().addingTimeInterval(600)
+            )
+            try await state.save(on: app.db)
+
+            try await app.testing().test(
+                .GET,
+                "/api/auth/atproto/callback?state=browser-bound-state&code=test&iss=https%3A%2F%2Fauth.example"
+            ) { request in
+                request.headers.replaceOrAdd(name: .cookie, value: secondCookie)
+            } afterResponse: { response in
+                #expect(response.status == .unauthorized)
             }
         }
     }
@@ -763,6 +897,7 @@ struct AppLogicTests {
                 dpopKeyJSON: try encryption.seal(DPoPKey().exportJSON())
             )
             try await account.save(on: app.db)
+            let cookie = try await authenticatedCookie(for: did, app: app)
 
             let draft = try Draft(
                 accountDID: did,
@@ -800,6 +935,7 @@ struct AppLogicTests {
                 coverAssetID: nil
             )
             try await app.testing().test(.PUT, "/api/drafts/\(draftID)") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
                 try request.content.encode(edit)
             } afterResponse: { response in
                 #expect(response.status == .ok)
@@ -809,7 +945,9 @@ struct AppLogicTests {
             #expect(edited.documentURI == draft.documentURI)
             #expect(edited.title == "Edited published article")
 
-            try await app.testing().test(.POST, "/api/drafts/\(draftID)/unpublish") { response in
+            try await app.testing().test(.POST, "/api/drafts/\(draftID)/unpublish") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
+            } afterResponse: { response in
                 #expect(response.status == .ok)
             }
 
@@ -838,6 +976,7 @@ struct AppLogicTests {
     func changingPublicationDiscardsRetainedIdentity() async throws {
         try await withApp(configure: configure) { app in
             let did = "did:plc:retained-identity"
+            let cookie = try await authenticatedCookie(for: did, app: app)
             let draft = try Draft(
                 accountDID: did,
                 publicationURI: "at://\(did)/site.standard.publication/old",
@@ -865,6 +1004,7 @@ struct AppLogicTests {
                 coverAssetID: nil
             )
             try await app.testing().test(.PUT, "/api/drafts/\(draftID)") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
                 try request.content.encode(edit)
             } afterResponse: { response in
                 #expect(response.status == .ok)
@@ -945,6 +1085,28 @@ struct AppLogicTests {
             #expect(try await SchedulerRun.query(on: app.db).count() == 1)
         }
     }
+}
+
+func authenticatedCookie(for did: String, app: Application) async throws -> String {
+    if try await LinkedAccount.query(on: app.db).filter(\.$did, .equal, did).first() == nil {
+        let account = LinkedAccount(
+            did: did,
+            handle: "\(did.split(separator: ":").last ?? "account").example",
+            pdsURL: "https://pds.example",
+            scope: "atproto include:site.standard.authFull",
+            accessToken: "plain:access-token",
+            refreshToken: "plain:refresh-token"
+        )
+        try await account.save(on: app.db)
+    }
+    let token = "test-\(UUID().uuidString)"
+    let session = BrowserSession(
+        tokenHash: BrowserSessionService.hash(token),
+        accountDID: did,
+        expiresAt: Date().addingTimeInterval(3_600)
+    )
+    try await session.save(on: app.db)
+    return "\(BrowserSessionService.cookieName)=\(token)"
 }
 
 private final class RecordingDPoPClient: Client, @unchecked Sendable {

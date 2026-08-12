@@ -8,30 +8,28 @@ struct AccountController: RouteCollection {
     }
 
     func list(req: Request) async throws -> [AccountResponse] {
-        let accounts = try await LinkedAccount.query(on: req.db)
-            .sort(\.$linkedAt, .descending)
-            .all()
-
-        for account in accounts {
-            do {
-                try await req.application.accountProfileDiscovery.sync(account: account, req: req)
-            } catch {
-                req.logger.warning("Account profile refresh failed; returning cached identity", metadata: [
-                    "accountDID": "\(account.did)",
-                    "error": "\(error)",
-                ])
-            }
+        let account = try await req.authenticatedContext().account
+        do {
+            try await req.application.accountProfileDiscovery.sync(account: account, req: req)
+        } catch {
+            req.logger.warning("Account profile refresh failed; returning cached identity", metadata: [
+                "accountDID": "\(account.did)",
+                "error": "\(error)",
+            ])
         }
-        return accounts.map(AccountResponse.init(account:))
+        return [AccountResponse(account: account)]
     }
 
-    func unlink(req: Request) async throws -> HTTPStatus {
+    func unlink(req: Request) async throws -> Response {
         guard let did = req.parameters.get("did") else { throw Abort(.badRequest) }
-        guard let account = try await LinkedAccount.query(on: req.db).filter(\.$did, .equal, did).first() else {
-            throw Abort(.notFound)
+        let context = try await req.authenticatedContext()
+        guard context.account.did == did else {
+            throw Abort(.forbidden, reason: "The requested account does not belong to this session")
         }
-        try await account.delete(on: req.db)
-        return .noContent
+        try await context.session.delete(on: req.db)
+        let response = Response(status: .noContent)
+        BrowserSessionService().clearCookie(on: response, req: req)
+        return response
     }
 }
 
