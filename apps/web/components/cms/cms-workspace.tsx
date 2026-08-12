@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import * as draftAPI from "@/lib/draft-api";
 import { APIError } from "@/lib/api";
 import { EditorPanel } from "@/components/cms/editor-panel";
-import { OAuthConnectScreen } from "@/components/oauth-connect-screen";
+import { EditorAccessState } from "@/components/cms/editor-access-state";
 import {
   DraftList,
   type DraftListGrouping,
@@ -20,6 +21,7 @@ import {
 import { RightPanel } from "@/components/cms/right-panel";
 import { PublicationsDashboard } from "@/components/cms/publications-dashboard";
 import { WorkspaceHeader } from "@/components/cms/workspace-header";
+import { FeedbackSection } from "@/components/cms/feedback-section";
 import { ColumnResizeHandle, useWorkspaceLayout } from "@/components/cms/workspace-layout";
 import { useAppearancePreferences } from "@/components/cms/use-appearance-preferences";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
@@ -41,11 +43,12 @@ import type { Draft, LinkedAccount, Publication } from "@/lib/types";
 import { markdownToPlaintext, validateDraft } from "@/lib/validation";
 
 export function CmsWorkspace() {
+  const router = useRouter();
   const [accounts, setAccounts] = React.useState<LinkedAccount[]>([]);
   const [accountLoadState, setAccountLoadState] = React.useState<"loading" | "ready" | "error">("loading");
   const [publications, setPublications] = React.useState<Publication[]>([]);
   const [drafts, setDrafts] = React.useState<Draft[]>([]);
-  const [activeView, setActiveView] = React.useState<"posts" | "publications">("posts");
+  const [activeView, setActiveView] = React.useState<"posts" | "publications" | "feedback">("posts");
   const activeAccount = accounts[0];
   const activeAccountDID = activeAccount?.did ?? "";
   const [selectedDraftID, setSelectedDraftID] = React.useState("");
@@ -108,6 +111,12 @@ export function CmsWorkspace() {
     requestAccounts(controller.signal);
     return () => controller.abort();
   }, [requestAccounts]);
+
+  React.useEffect(() => {
+    if (accountLoadState === "ready" && !activeAccount) {
+      router.replace("/login");
+    }
+  }, [accountLoadState, activeAccount, router]);
 
   React.useEffect(() => {
     const timers = autosaveTimers.current;
@@ -497,6 +506,7 @@ export function CmsWorkspace() {
       setDrafts([]);
       setSelectedDraftID("");
       toast.success("Logged out");
+      router.replace("/login");
     } catch (error) {
       toast.error(errorMessage(error, "Could not log out"));
     } finally {
@@ -511,20 +521,13 @@ export function CmsWorkspace() {
   };
 
   if (accountLoadState === "loading") {
-    return (
-      <main className="flex min-h-0 flex-1 items-center justify-center bg-muted/30 text-sm text-muted-foreground">
-        Loading account…
-      </main>
-    );
+    return <EditorAccessState state="loading" />;
   }
 
   if (!activeAccount) {
-    return (
-      <OAuthConnectScreen
-        accountLoadFailed={accountLoadState === "error"}
-        onRetry={refreshAccounts}
-      />
-    );
+    return accountLoadState === "error"
+      ? <EditorAccessState state="error" onRetry={refreshAccounts} />
+      : <EditorAccessState state="redirecting" />;
   }
 
   return (
@@ -554,6 +557,8 @@ export function CmsWorkspace() {
               isSyncing={isSyncing}
               onSync={syncPublications}
             />
+          ) : activeView === "feedback" ? (
+            <FeedbackSection account={activeAccount} onReconnect={logOut} />
           ) : (
           <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[var(--workbench-columns)]">
             <DraftList
