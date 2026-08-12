@@ -100,6 +100,11 @@ struct PcktDocumentWriteResult: Sendable {
     let wrapper: CreateRecordResponse
 }
 
+struct OffprintDocumentWriteResult: Sendable {
+    let document: CreateRecordResponse
+    let wrapper: CreateRecordResponse
+}
+
 struct ATProtoXRPCClient: Sendable {
     func getAccountProfileRecord(
         account: LinkedAccount,
@@ -223,42 +228,6 @@ struct ATProtoXRPCClient: Sendable {
         )
     }
 
-    func createOffprintArticle(
-        account: LinkedAccount,
-        tokenEncryption: TokenEncryption,
-        database: Database,
-        record: OffprintArticleRecord,
-        client: Client
-    ) async throws -> CreateRecordResponse {
-        try await createRecord(
-            account: account,
-            tokenEncryption: tokenEncryption,
-            database: database,
-            collection: "app.offprint.document.article",
-            record: record,
-            client: client
-        )
-    }
-
-    func putOffprintArticle(
-        account: LinkedAccount,
-        tokenEncryption: TokenEncryption,
-        database: Database,
-        rkey: String,
-        record: OffprintArticleRecord,
-        client: Client
-    ) async throws -> CreateRecordResponse {
-        try await putRecord(
-            account: account,
-            tokenEncryption: tokenEncryption,
-            database: database,
-            collection: "app.offprint.document.article",
-            rkey: rkey,
-            record: record,
-            client: client
-        )
-    }
-
     func applyPcktDocumentWrites(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,
@@ -334,6 +303,89 @@ struct ATProtoXRPCClient: Sendable {
             writes: [
                 ApplyWrite(type: .delete, collection: "blog.pckt.document", rkey: rkey, value: nil),
                 ApplyWrite(type: .delete, collection: "site.standard.document", rkey: rkey, value: nil),
+            ],
+            swapCommit: swapCommit,
+            client: client
+        )
+    }
+
+    func applyOffprintDocumentWrites(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        documentRkey: String,
+        wrapperRkey: String,
+        document: StandardSiteDocumentRecord,
+        documentExists: Bool,
+        wrapperExists: Bool,
+        swapCommit: String? = nil,
+        client: Client
+    ) async throws -> OffprintDocumentWriteResult {
+        let documentValue = try ATProtoRecordCID.jsonValue(document)
+        let documentCID = try ATProtoRecordCID.string(for: documentValue)
+        let documentURI = "at://\(account.did)/site.standard.document/\(documentRkey)"
+        let wrapper = OffprintArticleRecord(document: StrongReference(
+            uri: documentURI,
+            cid: documentCID,
+            type: "com.atproto.repo.strongRef"
+        ))
+        let wrapperValue = try ATProtoRecordCID.jsonValue(wrapper)
+        let wrapperCID = try ATProtoRecordCID.string(for: wrapperValue)
+        let wrapperURI = "at://\(account.did)/app.offprint.document.article/\(wrapperRkey)"
+        let writes = [
+            ApplyWrite(
+                type: documentExists ? .update : .create,
+                collection: "site.standard.document",
+                rkey: documentRkey,
+                value: documentValue
+            ),
+            ApplyWrite(
+                type: wrapperExists ? .update : .create,
+                collection: "app.offprint.document.article",
+                rkey: wrapperRkey,
+                value: wrapperValue
+            ),
+        ]
+        let response = try await applyWrites(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            writes: writes,
+            swapCommit: swapCommit,
+            client: client
+        )
+        if let results = response.results {
+            guard results.count == 2,
+                  results[0].uri == documentURI,
+                  results[0].cid == documentCID,
+                  results[1].uri == wrapperURI,
+                  results[1].cid == wrapperCID
+            else {
+                throw Abort(.badGateway, reason: "PDS returned unexpected results for the atomic Offprint document transaction")
+            }
+        }
+        return OffprintDocumentWriteResult(
+            document: CreateRecordResponse(uri: documentURI, cid: documentCID),
+            wrapper: CreateRecordResponse(uri: wrapperURI, cid: wrapperCID)
+        )
+    }
+
+    func applyOffprintDocumentDeletes(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        documentRkey: String,
+        wrapperRkey: String,
+        swapCommit: String? = nil,
+        client: Client
+    ) async throws {
+        _ = try await applyWrites(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            writes: [
+                ApplyWrite(type: .delete, collection: "app.offprint.document.article", rkey: wrapperRkey, value: nil),
+                ApplyWrite(type: .delete, collection: "site.standard.document", rkey: documentRkey, value: nil),
             ],
             swapCommit: swapCommit,
             client: client

@@ -40,8 +40,17 @@ struct PublisherService: Sendable {
             throw Abort(.unprocessableEntity, reason: "The selected publication has no supported content adapter")
         }
 
+        let offprintDocumentRkey: String?
         if host == .pckt {
             draft.path = pcktCompatiblePath(title: draft.title, path: draft.path, draftID: draftID)
+            offprintDocumentRkey = nil
+        } else if host == .offprint {
+            let rkey = try existingDocumentURI.map { try ATRecordReference(uri: $0).rkey }
+                ?? tidGenerator.generate()
+            draft.path = offprintCompatiblePath(title: draft.title, path: draft.path, documentRkey: rkey)
+            offprintDocumentRkey = rkey
+        } else {
+            offprintDocumentRkey = nil
         }
 
         let canonical = try CanonicalDocumentLoader.load(draft: draft)
@@ -108,6 +117,39 @@ struct PublisherService: Sendable {
                 )
                 documentResponse = result.document
                 platformResponse = result.wrapper
+            } else if host == .offprint {
+                guard let documentRkey = offprintDocumentRkey else {
+                    throw Abort(.internalServerError, reason: "The Offprint document record key is missing")
+                }
+                let wrapperRkey = try existingPlatformDocumentURI.map { try ATRecordReference(uri: $0).rkey }
+                    ?? tidGenerator.generate()
+                let repositoryHead = try await xrpc.getLatestCommit(account: account, client: req.client)
+                let documentExists = try await xrpc.getRecord(
+                    account: account,
+                    collection: "site.standard.document",
+                    rkey: documentRkey,
+                    client: req.client
+                ) != nil
+                let wrapperExists = try await xrpc.getRecord(
+                    account: account,
+                    collection: "app.offprint.document.article",
+                    rkey: wrapperRkey,
+                    client: req.client
+                ) != nil
+                let result = try await xrpc.applyOffprintDocumentWrites(
+                    account: account,
+                    tokenEncryption: req.application.tokenEncryption,
+                    database: req.db,
+                    documentRkey: documentRkey,
+                    wrapperRkey: wrapperRkey,
+                    document: document,
+                    documentExists: documentExists,
+                    wrapperExists: wrapperExists,
+                    swapCommit: repositoryHead.cid,
+                    client: req.client
+                )
+                documentResponse = result.document
+                platformResponse = result.wrapper
             } else {
                 if let existingDocumentURI, isUpdate {
                     documentResponse = try await xrpc.putDocument(
@@ -128,40 +170,7 @@ struct PublisherService: Sendable {
                     )
                 }
 
-                do {
-                    platformResponse = try await createPlatformDocument(
-                        host: host,
-                        document: documentResponse,
-                        existingPlatformDocumentURI: existingPlatformDocumentURI,
-                        account: account,
-                        req: req
-                    )
-                } catch {
-                    if isUpdate {
-                        draft.documentURI = documentResponse.uri
-                        draft.documentCID = documentResponse.cid
-                        try? await draft.save(on: req.db)
-                        throw Abort(.badGateway, reason: "The canonical document was updated, but its platform wrapper could not be refreshed")
-                    }
-                    do {
-                        try await xrpc.deleteRecord(
-                            account: account,
-                            tokenEncryption: req.application.tokenEncryption,
-                            database: req.db,
-                            recordURI: documentResponse.uri,
-                            client: req.client
-                        )
-                    } catch let cleanupError {
-                        draft.documentURI = documentResponse.uri
-                        draft.documentCID = documentResponse.cid
-                        try? await draft.save(on: req.db)
-                        throw Abort(
-                            .badGateway,
-                            reason: "Platform wrapper failed and the canonical document could not be removed: \(cleanupError)"
-                        )
-                    }
-                    throw error
-                }
+                platformResponse = nil
             }
 
             draft.documentURI = documentResponse.uri
@@ -260,6 +269,21 @@ struct PublisherService: Sendable {
             )
             draft.platformDocumentURI = nil
             draft.platformDocumentCID = nil
+        } else if let platformDocumentURI = draft.platformDocumentURI,
+                  let platformReference = try? ATRecordReference(uri: platformDocumentURI),
+                  platformReference.collection == "app.offprint.document.article" {
+            let repositoryHead = try await xrpc.getLatestCommit(account: account, client: req.client)
+            try await xrpc.applyOffprintDocumentDeletes(
+                account: account,
+                tokenEncryption: req.application.tokenEncryption,
+                database: req.db,
+                documentRkey: reference.rkey,
+                wrapperRkey: platformReference.rkey,
+                swapCommit: repositoryHead.cid,
+                client: req.client
+            )
+            draft.platformDocumentURI = nil
+            draft.platformDocumentCID = nil
         } else {
             if let platformDocumentURI = draft.platformDocumentURI {
                 try await xrpc.deleteRecord(
@@ -343,40 +367,6 @@ struct PublisherService: Sendable {
         return prepared.replacingOffload(with: blob)
     }
 
-    private func createPlatformDocument(
-        host: PublicationHost,
-        document: CreateRecordResponse,
-        existingPlatformDocumentURI: String?,
-        account: LinkedAccount,
-        req: Request
-    ) async throws -> CreateRecordResponse? {
-        let reference = StrongReference(uri: document.uri, cid: document.cid)
-        switch host {
-        case .leaflet:
-            return nil
-        case .offprint:
-            if let existingPlatformDocumentURI {
-                return try await xrpc.putOffprintArticle(
-                    account: account,
-                    tokenEncryption: req.application.tokenEncryption,
-                    database: req.db,
-                    rkey: try ATRecordReference(uri: existingPlatformDocumentURI).rkey,
-                    record: OffprintArticleRecord(document: reference),
-                    client: req.client
-                )
-            }
-            return try await xrpc.createOffprintArticle(
-                account: account,
-                tokenEncryption: req.application.tokenEncryption,
-                database: req.db,
-                record: OffprintArticleRecord(document: reference),
-                client: req.client
-            )
-        case .pckt:
-            throw Abort(.internalServerError, reason: "pckt documents must use the atomic publishing transaction")
-        }
-    }
-
     private func coverBlob(for draft: Draft, account: LinkedAccount, req: Request) async throws -> ATProtoBlobRef? {
         guard let coverAssetID = draft.coverAssetID,
               let asset = try await CoverAsset.find(coverAssetID, on: req.db)
@@ -419,4 +409,28 @@ func pcktCompatiblePath(title: String, path: String?, draftID: UUID) -> String {
 
     let base = source.isEmpty ? titleSlug : source
     return "/\(base.isEmpty ? "untitled-article" : base)-\(discriminator)"
+}
+
+func offprintCompatiblePath(title: String, path: String?, documentRkey: String) -> String {
+    let current = path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let nativePrefix = "/a/\(documentRkey)-"
+    if current.hasPrefix(nativePrefix), current.count > nativePrefix.count {
+        return current
+    }
+
+    var source = current.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    if source.hasPrefix("a/") {
+        source.removeFirst(2)
+        if let separator = source.firstIndex(of: "-") {
+            source = String(source[source.index(after: separator)...])
+        }
+    }
+    let titleSlug = title.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current).lowercased()
+        .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    let sourceSlug = source.lowercased()
+        .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    let slug = sourceSlug.isEmpty ? titleSlug : sourceSlug
+    return "\(nativePrefix)\(slug.isEmpty ? "untitled-article" : slug)"
 }

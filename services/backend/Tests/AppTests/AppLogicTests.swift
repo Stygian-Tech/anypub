@@ -45,6 +45,25 @@ struct AppLogicTests {
         #expect(pcktCompatiblePath(title: "Changed", path: "/custom-path-56789ab", draftID: draftID) == "/custom-path-56789ab")
     }
 
+    @Test("Offprint paths use the standard document rkey and preserve custom slugs")
+    func offprintPathsUseDocumentRkey() {
+        #expect(offprintCompatiblePath(
+            title: "ATProto Standards Bodies",
+            path: "/atproto-standards-bodies",
+            documentRkey: "3msmoumcr4d23"
+        ) == "/a/3msmoumcr4d23-atproto-standards-bodies")
+        #expect(offprintCompatiblePath(
+            title: "Changed title",
+            path: "/a/3msmoumcr4d23-custom-slug",
+            documentRkey: "3msmoumcr4d23"
+        ) == "/a/3msmoumcr4d23-custom-slug")
+        #expect(offprintCompatiblePath(
+            title: "Café Notes",
+            path: nil,
+            documentRkey: "3msmoumcr4d23"
+        ) == "/a/3msmoumcr4d23-cafe-notes")
+    }
+
     @Test("OAuth scopes include standard.site, calendar, and blob upload transition")
     func oauthScopes() {
         let scopes = OAuthScopeBuilder.cmsScopes().split(separator: " ").map(String.init)
@@ -257,6 +276,8 @@ struct AppLogicTests {
         ```
 
         - [x] Shipped
+
+        **bold** *italic* `code` ~~removed~~ ++underlined++ [linked](https://example.com)
         """)
         let prepared = try PublicationContentAdapter.prepare(document: document, host: .offprint)
         let content = try #require(prepared.content.objectValue)
@@ -267,6 +288,16 @@ struct AppLogicTests {
         #expect(items[1].objectValue?["$type"] == .string("app.offprint.block.codeBlock"))
         #expect(items[1].objectValue?["code"] == .string("let answer = 42"))
         #expect(items[2].objectValue?["$type"] == .string("app.offprint.block.taskList"))
+        let facets = try #require(items[3].objectValue?["facets"]?.arrayValue)
+        let facetTypes = Set(facets.compactMap { $0.objectValue?["features"]?.arrayValue?.first?.objectValue?["$type"]?.stringValue })
+        #expect(facetTypes == [
+            "app.offprint.richtext.facet#bold",
+            "app.offprint.richtext.facet#italic",
+            "app.offprint.richtext.facet#code",
+            "app.offprint.richtext.facet#strikethrough",
+            "app.offprint.richtext.facet#underline",
+            "app.offprint.richtext.facet#link",
+        ])
     }
 
     @Test("pckt adapter uses blog namespace, recursive lists, and extended mode")

@@ -86,8 +86,21 @@ struct ATProtoTimestamp: Codable, Equatable, Sendable {
 }
 
 struct StrongReference: Codable, Equatable, Sendable {
+    let type: String?
     let uri: String
     let cid: String
+
+    init(uri: String, cid: String, type: String? = nil) {
+        self.type = type
+        self.uri = uri
+        self.cid = cid
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type = "$type"
+        case uri
+        case cid
+    }
 }
 
 struct OffprintArticleRecord: Codable, Equatable, Sendable {

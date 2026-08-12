@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CmsWorkspace } from "@/components/cms/cms-workspace";
+import { NewDraftDialog } from "@/components/cms/post-dialogs";
+import { pcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
 import { RightPanel } from "@/components/cms/right-panel";
-import type { Draft } from "@/lib/types";
+import type { Draft, Publication } from "@/lib/types";
 
 beforeEach(() => {
   const values = new Map<string, string>();
@@ -266,5 +268,47 @@ describe("publication discovery UI", () => {
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
     expect(screen.getByText("Publication unavailable")).toBeInTheDocument();
     expect(screen.getByText(draft.publicationURI)).toBeInTheDocument();
+  });
+
+  it("warns that externally published pckt posts will not appear on the site", () => {
+    const publication: Publication = {
+      id: "pckt-publication",
+      accountDID: "did:plc:writer",
+      uri: "at://did:plc:writer/site.standard.publication/pckt",
+      name: "Writer pckt",
+      url: "https://writer.pckt.blog",
+      host: "pckt",
+      syncedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const draft: Draft = {
+      id: "draft-id",
+      accountDID: publication.accountDID,
+      publicationURI: publication.uri,
+      publicationURL: publication.url,
+      title: "pckt draft",
+      tags: [],
+      markdown: "Body",
+      plaintext: "Body",
+      status: "draft",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+
+    const { unmount } = render(
+      <RightPanel
+        draft={draft}
+        selectedPublication={publication}
+        calendarItems={[]}
+        onScheduledDate={() => {}}
+        onSchedule={() => {}}
+        onDraftChange={() => {}}
+      />,
+    );
+    expect(screen.getByRole("note")).toHaveTextContent(pcktPublishingNotice);
+    unmount();
+
+    render(<NewDraftDialog publications={[publication]} onCreate={async () => true} />);
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    expect(screen.getByRole("note")).toHaveTextContent(pcktPublishingNotice);
   });
 });

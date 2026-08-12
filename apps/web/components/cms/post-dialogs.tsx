@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
 import { PublicationIcon } from "@/components/cms/publication-icon";
 import type { Draft, Publication } from "@/lib/types";
 
@@ -44,24 +45,26 @@ export function NewDraftDialog({
         </DialogHeader>
         <div className="grid gap-2">
           {publications.map((publication) => (
-            <button
-              key={publication.uri}
-              type="button"
-              onClick={() => createForPublication(publication.uri)}
-              className="border-border hover:bg-accent focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2"
-            >
-              <PublicationIcon publication={publication} />
-              <span className="min-w-0 flex-1">
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-medium">{publication.name}</span>
+            <div key={publication.uri} className="grid gap-2">
+              <button
+                type="button"
+                onClick={() => createForPublication(publication.uri)}
+                className="border-border hover:bg-accent focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2"
+              >
+                <PublicationIcon publication={publication} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-medium">{publication.name}</span>
+                  </span>
+                  <span className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
+                    <span className="shrink-0">{publication.host ?? "standard.site"}</span>
+                    <span aria-hidden>/</span>
+                    <span className="truncate">{publication.url}</span>
+                  </span>
                 </span>
-                <span className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
-                  <span className="shrink-0">{publication.host ?? "standard.site"}</span>
-                  <span aria-hidden>/</span>
-                  <span className="truncate">{publication.url}</span>
-                </span>
-              </span>
-            </button>
+              </button>
+              {publication.host === "pckt" ? <PcktPublishingNotice /> : null}
+            </div>
           ))}
         </div>
       </DialogContent>
@@ -91,19 +94,21 @@ export function ChangePublicationDialog({
         </DialogHeader>
         <div className="grid gap-2">
           {publications.map((publication) => (
-            <button
-              key={publication.uri}
-              type="button"
-              disabled={busy || publication.uri === draft?.publicationURI}
-              onClick={() => draft && onChange(draft, publication)}
-              className="border-border hover:bg-accent focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2 disabled:opacity-50"
-            >
-              <PublicationIcon publication={publication} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{publication.name}</span>
-                <span className="text-muted-foreground block truncate text-xs">{publication.url}</span>
-              </span>
-            </button>
+            <div key={publication.uri} className="grid gap-2">
+              <button
+                type="button"
+                disabled={busy || publication.uri === draft?.publicationURI}
+                onClick={() => draft && onChange(draft, publication)}
+                className="border-border hover:bg-accent focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2 disabled:opacity-50"
+              >
+                <PublicationIcon publication={publication} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{publication.name}</span>
+                  <span className="text-muted-foreground block truncate text-xs">{publication.url}</span>
+                </span>
+              </button>
+              {publication.host === "pckt" ? <PcktPublishingNotice /> : null}
+            </div>
           ))}
         </div>
       </DialogContent>

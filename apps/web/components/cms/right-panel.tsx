@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
 import { calendarItemsFromDrafts } from "@/lib/cms-data";
 import type { Draft, DraftStatus, Publication } from "@/lib/types";
 
@@ -83,6 +84,7 @@ export function RightPanel({
                   <span className="text-muted-foreground truncate text-xs">
                     {selectedPublication?.url ?? draft.publicationURI}
                   </span>
+                  {selectedPublication?.host === "pckt" ? <PcktPublishingNotice className="mt-2" /> : null}
                 </CardContent>
               </Card>
               <Field>

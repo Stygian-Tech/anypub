@@ -77,6 +77,64 @@ struct PcktPublishingTests {
         }
     }
 
+    @Test("Offprint publishing atomically writes a native document and typed wrapper")
+    func atomicOffprintWriteRequest() async throws {
+        try await withApp(configure: configure) { app in
+            let encryption = TokenEncryption(secret: nil)
+            let account = LinkedAccount(
+                did: "did:plc:writer",
+                handle: "writer.example",
+                pdsURL: "https://pds.example",
+                scope: "atproto include:site.standard.authFull include:app.offprint.authFull",
+                accessToken: try encryption.seal("access"),
+                refreshToken: try encryption.seal("refresh"),
+                dpopKeyJSON: try encryption.seal(DPoPKey().exportJSON())
+            )
+            let capture = RequestCapture()
+            let client = ApplyWritesClient(eventLoop: app.eventLoopGroup.next(), capture: capture)
+            let document = StandardSiteDocumentRecord(
+                site: "at://did:plc:writer/site.standard.publication/publication",
+                title: "Native Offprint post",
+                publishedAt: ATProtoTimestamp(Date(timeIntervalSince1970: 1_800_000_000)),
+                path: "/a/3mdocument-native-offprint-post",
+                tags: nil,
+                langs: nil,
+                coverImage: nil,
+                description: "Native Offprint post",
+                textContent: "Native Offprint post",
+                content: .object(["$type": .string("app.offprint.content"), "items": .array([])]),
+                updatedAt: ATProtoTimestamp(Date(timeIntervalSince1970: 1_800_000_000))
+            )
+
+            let result = try await ATProtoXRPCClient().applyOffprintDocumentWrites(
+                account: account,
+                tokenEncryption: encryption,
+                database: app.db,
+                documentRkey: "3mdocument",
+                wrapperRkey: "3mwrapper",
+                document: document,
+                documentExists: false,
+                wrapperExists: false,
+                swapCommit: "bafyreirepohead",
+                client: client
+            )
+
+            let request = try #require(capture.value())
+            let payload = try JSONDecoder().decode(JSONValue.self, from: request.body)
+            let writes = try #require(payload.objectValue?["writes"]?.arrayValue)
+            let reference = writes[1].objectValue?["value"]?.objectValue?["document"]?.objectValue
+            #expect(writes.count == 2)
+            #expect(writes[0].objectValue?["collection"] == .string("site.standard.document"))
+            #expect(writes[0].objectValue?["rkey"] == .string("3mdocument"))
+            #expect(writes[1].objectValue?["collection"] == .string("app.offprint.document.article"))
+            #expect(writes[1].objectValue?["rkey"] == .string("3mwrapper"))
+            #expect(reference?["$type"] == .string("com.atproto.repo.strongRef"))
+            #expect(reference?["uri"] == .string(result.document.uri))
+            #expect(reference?["cid"] == .string(result.document.cid))
+            #expect(result.wrapper.uri == "at://did:plc:writer/app.offprint.document.article/3mwrapper")
+        }
+    }
+
     @Test("applyWrites payload contains a same-rkey document and wrapper pair")
     func applyWritesPayload() throws {
         let document: JSONValue = .object([
