@@ -65,6 +65,9 @@ struct DraftController: RouteCollection {
             expectedSchemaVersion: input.blockSchemaVersion,
             expectedRevision: input.blockRevision
         )
+        if draft.accountDID != input.accountDID || draft.publicationURI != input.publicationURI {
+            draft.discardRetainedPublishingIdentity()
+        }
         draft.accountDID = input.accountDID
         draft.publicationURI = input.publicationURI
         draft.publicationURL = input.publicationURL
@@ -108,6 +111,9 @@ struct DraftController: RouteCollection {
             throw Abort(.conflict, reason: "Only drafts can change publication")
         }
         let input = try req.content.decode(ChangeDraftPublicationRequest.self)
+        if draft.publicationURI != input.publicationURI {
+            draft.discardRetainedPublishingIdentity()
+        }
         draft.publicationURI = input.publicationURI
         draft.publicationURL = input.publicationURL
         draft.updatedAt = Date()

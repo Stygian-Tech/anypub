@@ -44,6 +44,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddDraftBlockDocuments())
     app.migrations.add(AddPublishingState())
     app.migrations.add(AddDiscoveryImages())
+    app.migrations.add(AddRetainedPublishingIdentity())
     if app.environment == .development || app.environment == .testing {
         app.migrations.add(SeedDevelopmentDrafts())
     }

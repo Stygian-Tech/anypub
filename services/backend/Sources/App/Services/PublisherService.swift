@@ -21,8 +21,8 @@ struct PublisherService: Sendable {
         guard [.draft, .failed, .scheduled, .published].contains(draft.typedStatus) else {
             throw Abort(.conflict, reason: "The draft is already being published")
         }
-        let existingDocumentURI = draft.documentURI
-        let existingPlatformDocumentURI = draft.platformDocumentURI
+        let existingDocumentURI = draft.documentURIForPublishing
+        let existingPlatformDocumentURI = draft.platformDocumentURIForPublishing
         let isUpdate = existingDocumentURI != nil
         guard let account = try await LinkedAccount.query(on: req.db)
             .filter(\.$did, .equal, draft.accountDID)
@@ -177,6 +177,7 @@ struct PublisherService: Sendable {
             draft.documentCID = documentResponse.cid
             draft.platformDocumentURI = platformResponse?.uri
             draft.platformDocumentCID = platformResponse?.cid
+            draft.discardRetainedPublishingIdentity()
             draft.publishedAt = document.publishedAt.date
             draft.typedStatus = .published
             draft.updatedAt = Date()
@@ -241,6 +242,7 @@ struct PublisherService: Sendable {
 
     func unpublish(draft: Draft, req: Request) async throws {
         guard let documentURI = draft.documentURI else { return }
+        let platformDocumentURI = draft.platformDocumentURI
         let reference = try ATRecordReference(uri: documentURI)
         guard reference.collection == "site.standard.document" else {
             throw Abort(.badRequest, reason: "Published linkage is not a standard.site document")
@@ -254,7 +256,7 @@ struct PublisherService: Sendable {
 
         try await deleteCalendarEvent(for: draft, account: account, req: req)
 
-        if let platformDocumentURI = draft.platformDocumentURI,
+        if let platformDocumentURI,
            let platformReference = try? ATRecordReference(uri: platformDocumentURI),
            platformReference.collection == "blog.pckt.document",
            platformReference.rkey == reference.rkey {
@@ -269,7 +271,7 @@ struct PublisherService: Sendable {
             )
             draft.platformDocumentURI = nil
             draft.platformDocumentCID = nil
-        } else if let platformDocumentURI = draft.platformDocumentURI,
+        } else if let platformDocumentURI,
                   let platformReference = try? ATRecordReference(uri: platformDocumentURI),
                   platformReference.collection == "app.offprint.document.article" {
             let repositoryHead = try await xrpc.getLatestCommit(account: account, client: req.client)
@@ -285,7 +287,7 @@ struct PublisherService: Sendable {
             draft.platformDocumentURI = nil
             draft.platformDocumentCID = nil
         } else {
-            if let platformDocumentURI = draft.platformDocumentURI {
+            if let platformDocumentURI {
                 try await xrpc.deleteRecord(
                     account: account,
                     tokenEncryption: req.application.tokenEncryption,
@@ -306,8 +308,12 @@ struct PublisherService: Sendable {
                 client: req.client
             )
         }
+        draft.retainedDocumentURI = documentURI
+        draft.retainedPlatformDocumentURI = platformDocumentURI
         draft.documentURI = nil
         draft.documentCID = nil
+        draft.platformDocumentURI = nil
+        draft.platformDocumentCID = nil
         draft.publishedAt = nil
         draft.scheduledAt = nil
         draft.typedStatus = .draft

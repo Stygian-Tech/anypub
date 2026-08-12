@@ -684,7 +684,7 @@ struct AppLogicTests {
         }
     }
 
-    @Test("Published posts remain editable and unpublish all linked records")
+    @Test("Unpublishing retains record identities for an in-place republish")
     func editAndUnpublishPublishedPost() async throws {
         try await withApp(configure: configure) { app in
             let did = "did:plc:unpublish"
@@ -760,6 +760,10 @@ struct AppLogicTests {
             #expect(unpublished.documentCID == nil)
             #expect(unpublished.platformDocumentURI == nil)
             #expect(unpublished.platformDocumentCID == nil)
+            #expect(unpublished.retainedDocumentURI == draft.documentURI)
+            #expect(unpublished.retainedPlatformDocumentURI == draft.platformDocumentURI)
+            #expect(unpublished.documentURIForPublishing == draft.documentURI)
+            #expect(unpublished.platformDocumentURIForPublishing == draft.platformDocumentURI)
             #expect(unpublished.publishedAt == nil)
             #expect(try await CalendarEventLink.query(on: app.db).filter(\.$draftID, .equal, draftID).count() == 0)
             #expect(client.deletedCollections() == [
@@ -767,6 +771,48 @@ struct AppLogicTests {
                 "blog.pckt.document",
                 "site.standard.document",
             ])
+        }
+    }
+
+    @Test("Changing publication discards an unpublished record identity")
+    func changingPublicationDiscardsRetainedIdentity() async throws {
+        try await withApp(configure: configure) { app in
+            let did = "did:plc:retained-identity"
+            let draft = try Draft(
+                accountDID: did,
+                publicationURI: "at://\(did)/site.standard.publication/old",
+                publicationURL: "https://old.example",
+                title: "Moved article",
+                path: "/moved-article",
+                excerpt: nil,
+                tags: [],
+                markdown: "Body"
+            )
+            draft.retainedDocumentURI = "at://\(did)/site.standard.document/document"
+            draft.retainedPlatformDocumentURI = "at://\(did)/app.offprint.document.article/wrapper"
+            try await draft.save(on: app.db)
+            let draftID = try #require(draft.id)
+
+            let edit = UpsertDraftRequest(
+                accountDID: did,
+                publicationURI: "at://\(did)/site.standard.publication/new",
+                publicationURL: "https://new.example",
+                title: draft.title,
+                path: draft.path,
+                excerpt: draft.excerpt,
+                tags: [],
+                markdown: draft.markdown,
+                coverAssetID: nil
+            )
+            try await app.testing().test(.PUT, "/api/drafts/\(draftID)") { request in
+                try request.content.encode(edit)
+            } afterResponse: { response in
+                #expect(response.status == .ok)
+            }
+
+            let moved = try #require(await Draft.find(draftID, on: app.db))
+            #expect(moved.retainedDocumentURI == nil)
+            #expect(moved.retainedPlatformDocumentURI == nil)
         }
     }
 

@@ -75,6 +75,14 @@ final class Draft: Model, Content, @unchecked Sendable {
     @OptionalField(key: "platform_document_cid")
     var platformDocumentCID: String?
 
+    // An unpublish removes the public records, but their AT-URI identities are
+    // retained privately so a later republish can reuse the same record keys.
+    @OptionalField(key: "retained_document_uri")
+    var retainedDocumentURI: String?
+
+    @OptionalField(key: "retained_platform_document_uri")
+    var retainedPlatformDocumentURI: String?
+
     @Field(key: "created_at")
     var createdAt: Date
 
@@ -131,5 +139,18 @@ final class Draft: Model, Content, @unchecked Sendable {
 
     func tags() -> [String] {
         (try? TagsCodec.decode(tagsJSON)) ?? []
+    }
+
+    var documentURIForPublishing: String? {
+        documentURI ?? retainedDocumentURI
+    }
+
+    var platformDocumentURIForPublishing: String? {
+        platformDocumentURI ?? retainedPlatformDocumentURI
+    }
+
+    func discardRetainedPublishingIdentity() {
+        retainedDocumentURI = nil
+        retainedPlatformDocumentURI = nil
     }
 }
