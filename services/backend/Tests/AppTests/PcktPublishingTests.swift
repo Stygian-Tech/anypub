@@ -7,6 +7,20 @@ import VaporTesting
 
 @Suite("Atomic pckt publishing")
 struct PcktPublishingTests {
+    @Test("PDS RecordNotFound responses are treated as absent records")
+    func missingRecordLookup() async throws {
+        try await withApp(configure: configure) { app in
+            let record = try await ATProtoXRPCClient().getRecord(
+                account: testAccount(did: "did:plc:writer"),
+                collection: "blog.pckt.document",
+                rkey: "missing",
+                client: MissingRecordClient(eventLoop: app.eventLoopGroup.next())
+            )
+
+            #expect(record == nil)
+        }
+    }
+
     @Test("pckt publishing sends one authenticated applyWrites request")
     func atomicPcktWriteRequest() async throws {
         try await withApp(configure: configure) { app in
@@ -309,6 +323,24 @@ private struct PcktVerificationClient: Client {
         return eventLoop.makeSucceededFuture(ClientResponse(
             status: response.0,
             headers: ["content-type": response.1],
+            body: body
+        ))
+    }
+}
+
+private struct MissingRecordClient: Client {
+    let eventLoop: any EventLoop
+
+    func delegating(to eventLoop: any EventLoop) -> any Client {
+        MissingRecordClient(eventLoop: eventLoop)
+    }
+
+    func send(_ request: ClientRequest) -> EventLoopFuture<ClientResponse> {
+        var body = ByteBufferAllocator().buffer(capacity: 128)
+        body.writeString(#"{"error":"RecordNotFound","message":"Could not locate record"}"#)
+        return eventLoop.makeSucceededFuture(ClientResponse(
+            status: .badRequest,
+            headers: ["content-type": "application/json"],
             body: body
         ))
     }

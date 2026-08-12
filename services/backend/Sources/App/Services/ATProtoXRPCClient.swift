@@ -150,6 +150,11 @@ struct ATProtoXRPCClient: Sendable {
         )
         let response = try await client.get(URI(string: uri)).get()
         if response.status == .notFound { return nil }
+        if response.status == .badRequest,
+           let error = try? response.content.decode(XRPCErrorResponse.self),
+           error.error == "RecordNotFound" {
+            return nil
+        }
         try requireSuccess(response, operation: "record lookup")
         return try response.content.decode(RepositoryRecord<JSONValue>.self)
     }
