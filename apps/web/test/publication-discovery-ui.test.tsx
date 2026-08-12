@@ -343,6 +343,28 @@ describe("publication discovery UI", () => {
     expect(screen.getByRole("button", { name: "Replace" })).toBeInTheDocument();
   });
 
+  it("marks scheduling and calendar surfaces as experimental", () => {
+    render(
+      <RightPanel
+        calendarItems={[]}
+        onScheduledDate={() => {}}
+        onSchedule={() => {}}
+        onDraftChange={() => {}}
+      />,
+    );
+
+    expect(screen.getAllByLabelText("Experimental")).toHaveLength(2);
+    const scheduleTab = screen.getByRole("tab", { name: /Schedule$/ });
+    fireEvent.mouseDown(scheduleTab, { button: 0, ctrlKey: false });
+    fireEvent.click(scheduleTab);
+    expect(screen.getByText("Experimental")).toBeInTheDocument();
+    const calendarTab = screen.getByRole("tab", { name: /Calendar$/ });
+    fireEvent.mouseDown(calendarTab, { button: 0, ctrlKey: false });
+    fireEvent.click(calendarTab);
+    expect(screen.getByText("Publication calendar")).toBeInTheDocument();
+    expect(screen.getByText("Experimental")).toBeInTheDocument();
+  });
+
   it("warns that externally published pckt posts will not appear on the site", () => {
     const publication: Publication = {
       id: "pckt-publication",

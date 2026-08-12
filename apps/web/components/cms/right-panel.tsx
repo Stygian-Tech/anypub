@@ -15,13 +15,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
+import { ExperimentalBadge, ExperimentalGlyph } from "@/components/cms/experimental-badge";
 import { assetContentURL, uploadImage } from "@/lib/asset-api";
 import { calendarItemsFromDrafts } from "@/lib/cms-data";
 import type { Draft, DraftStatus, Publication } from "@/lib/types";
 
-const statusVariant: Record<DraftStatus, "default" | "secondary" | "outline" | "destructive"> = {
+const statusVariant: Record<DraftStatus, "default" | "secondary" | "accent" | "outline" | "destructive"> = {
   draft: "outline",
-  scheduled: "secondary",
+  scheduled: "accent",
   publishing: "secondary",
   published: "default",
   failed: "destructive",
@@ -55,7 +56,7 @@ function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (tags: string[
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-md border bg-background p-1.5 shadow-xs focus-within:ring-2 focus-within:ring-ring">
       {committedTags.map((tag) => (
-        <Badge key={tag} variant="secondary" className="gap-1 pl-2 pr-1">
+        <Badge key={tag} variant="accent" className="gap-1 pl-2 pr-1">
           {tag}
           <button
             type="button"
@@ -132,10 +133,16 @@ export function RightPanel({
               <span className="min-w-0 truncate">Meta</span>
             </TabsTrigger>
             <TabsTrigger value="schedule" className={sideTabsTriggerClassName} style={sideTabsTriggerStyle}>
-              <span className="min-w-0 truncate">Schedule</span>
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                <ExperimentalGlyph />
+                Schedule
+              </span>
             </TabsTrigger>
             <TabsTrigger value="calendar" className={sideTabsTriggerClassName} style={sideTabsTriggerStyle}>
-              <span className="min-w-0 truncate">Calendar</span>
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                <ExperimentalGlyph />
+                Calendar
+              </span>
             </TabsTrigger>
           </TabsList>
         </div>
@@ -227,6 +234,7 @@ export function RightPanel({
               <CardTitle className="flex items-center gap-2">
                 <ClockIcon />
                 Publish date
+                <ExperimentalBadge className="ml-auto" />
               </CardTitle>
               <CardDescription>Scheduling creates or updates a community calendar event.</CardDescription>
             </CardHeader>
@@ -250,6 +258,10 @@ export function RightPanel({
           </Card>
         </TabsContent>
         <TabsContent value="calendar" className="min-h-0 overflow-auto p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="text-sm font-medium">Publication calendar</span>
+            <ExperimentalBadge />
+          </div>
           <Table>
             <TableHeader>
               <TableRow>

@@ -8,6 +8,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
 import { PublicationIcon } from "@/components/cms/publication-icon";
+import { ExperimentalBadge } from "@/components/cms/experimental-badge";
 import type { Draft, Publication } from "@/lib/types";
 
 export function NewDraftDialog({
@@ -135,7 +136,10 @@ export function EditScheduleDialog({
     <Dialog open={Boolean(draft)} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Edit scheduled time</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            Edit scheduled time
+            <ExperimentalBadge />
+          </DialogTitle>
           <DialogDescription>{draft?.title}</DialogDescription>
         </DialogHeader>
         <Field>

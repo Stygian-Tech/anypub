@@ -12,9 +12,9 @@ import { assetContentURL, uploadImage } from "@/lib/asset-api";
 import type { DraftSaveState } from "@/lib/draft-editor";
 import type { Draft, DraftStatus } from "@/lib/types";
 
-const statusVariant: Record<DraftStatus, "default" | "secondary" | "outline" | "destructive"> = {
+const statusVariant: Record<DraftStatus, "default" | "secondary" | "accent" | "outline" | "destructive"> = {
   draft: "outline",
-  scheduled: "secondary",
+  scheduled: "accent",
   publishing: "secondary",
   published: "default",
   failed: "destructive",

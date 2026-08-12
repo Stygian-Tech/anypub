@@ -45,7 +45,7 @@ export function WorkspaceHeader({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <div className="truncate text-sm font-semibold">AnyPub</div>
-          <Badge variant="secondary" className="uppercase tracking-wide">Alpha</Badge>
+          <Badge variant="accent" className="uppercase tracking-wide">Alpha</Badge>
         </div>
         <div className="text-muted-foreground truncate text-xs">standard.site CMS</div>
       </div>
