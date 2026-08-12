@@ -30,6 +30,7 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
     let publishedAt: Date
     let path: String?
     let tags: [String]?
+    let langs: [String]?
     let coverImage: ATProtoBlobRef?
     let description: String?
     let textContent: String?
@@ -43,6 +44,7 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
         case publishedAt
         case path
         case tags
+        case langs
         case coverImage
         case description
         case textContent
@@ -52,15 +54,8 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
 }
 
 struct StrongReference: Codable, Equatable, Sendable {
-    let type = "com.atproto.repo.strongRef"
     let uri: String
     let cid: String
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case uri
-        case cid
-    }
 }
 
 struct OffprintArticleRecord: Codable, Equatable, Sendable {
@@ -115,13 +110,20 @@ struct CalendarEventRecord: Codable, Equatable, Sendable {
 }
 
 struct ProtocolRecordBuilder: Sendable {
-    func documentRecord(draft: Draft, cover: ATProtoBlobRef?, content: JSONValue? = nil) -> StandardSiteDocumentRecord {
-        StandardSiteDocumentRecord(
+    func documentRecord(
+        draft: Draft,
+        cover: ATProtoBlobRef?,
+        content: JSONValue? = nil,
+        pcktCompatible: Bool = false
+    ) -> StandardSiteDocumentRecord {
+        let tags = draft.tags()
+        return StandardSiteDocumentRecord(
             site: draft.publicationURI,
             title: draft.title,
             publishedAt: draft.publishedAt ?? draft.scheduledAt ?? Date(),
             path: draft.path,
-            tags: draft.tags().isEmpty ? nil : draft.tags(),
+            tags: tags.isEmpty && !pcktCompatible ? nil : tags,
+            langs: pcktCompatible ? ["en"] : nil,
             coverImage: cover,
             description: draft.excerpt,
             textContent: draft.plaintext,

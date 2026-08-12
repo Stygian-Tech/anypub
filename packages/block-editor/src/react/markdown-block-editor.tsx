@@ -15,6 +15,7 @@ import {
   parseMarkdownBlock,
   parseMarkdownBlocks,
   setMarkdownBlockListLevel,
+  shouldInsertCodeBlockSoftBreak,
   splitMarkdownBlockAtCursor,
   type MarkdownBlock,
   type BlockDocument,
@@ -463,7 +464,7 @@ export function MarkdownBlockEditor({
                       }
                       if (event.key === "Enter") {
                         event.preventDefault();
-                        if (event.shiftKey) {
+                        if (event.shiftKey || shouldInsertCodeBlockSoftBreak(block, event.currentTarget.selectionStart)) {
                           insertSoftBreak(index, event, editorPrefix);
                           return;
                         }

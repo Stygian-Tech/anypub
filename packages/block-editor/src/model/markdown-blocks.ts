@@ -39,12 +39,53 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
     return [];
   }
 
-  return normalized
-    .split(/\n{2,}/)
-    .map((block) => block.replace(/^\n+|\n+$/g, ""))
+  return splitBlockSources(normalized)
     .filter((block) => block.trim())
     .flatMap(splitListItems)
     .map(parseMarkdownBlock);
+}
+
+function splitBlockSources(markdown: string) {
+  const blocks: string[] = [];
+  let current: string[] = [];
+  let fence: string | null = null;
+
+  const flush = () => {
+    const source = current.join("\n").replace(/^\n+|\n+$/g, "");
+    if (source.trim()) {
+      blocks.push(source);
+    }
+    current = [];
+  };
+
+  for (const line of markdown.split("\n")) {
+    const fenceMatch = line.match(/^\s{0,3}(`{3,})/);
+    if (fence) {
+      current.push(line);
+      if (fenceMatch && fenceMatch[1]!.length >= fence.length && line.slice(fenceMatch[0].length).trim() === "") {
+        fence = null;
+        flush();
+      }
+      continue;
+    }
+
+    if (fenceMatch) {
+      flush();
+      fence = fenceMatch[1] ?? "```";
+      current.push(line);
+      continue;
+    }
+
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+
+    current.push(line);
+  }
+
+  flush();
+  return blocks;
 }
 
 export function parseMarkdownBlock(source: string): MarkdownBlock {
@@ -140,6 +181,24 @@ export function splitMarkdownBlockAtCursor(
   const end = clamp(selectionEnd, start, source.length);
 
   return [parseMarkdownBlock(source.slice(0, start)), parseMarkdownBlock(source.slice(end))];
+}
+
+export function shouldInsertCodeBlockSoftBreak(block: MarkdownBlock, selectionStart: number) {
+  if (!/^\s{0,3}`{3,}/.test(block.source)) {
+    return false;
+  }
+
+  const lines = block.source.split("\n");
+  let offset = (lines[0]?.length ?? 0) + 1;
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (/^\s{0,3}`{3,}\s*$/.test(line)) {
+      return selectionStart <= offset;
+    }
+    offset += line.length + 1;
+  }
+
+  return true;
 }
 
 export function compactMarkdownBlocks<T extends MarkdownBlockInput>(blocks: T[]) {

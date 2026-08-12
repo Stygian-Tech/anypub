@@ -204,7 +204,7 @@ function renderMarkdownLines(lines: string[]) {
 
 function renderInlineMarkdown(text: string) {
   const nodes: React.ReactNode[] = [];
-  const pattern = /(!?\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  const pattern = /(!?\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_)/g;
   let lastIndex = 0;
 
   for (const match of text.matchAll(pattern)) {
@@ -249,10 +249,18 @@ function renderInlineToken(token: string, key: number) {
   }
 
   if (token.startsWith("**")) {
-    return <strong key={key}>{token.slice(2, -2)}</strong>;
+    return <strong key={key} className="font-semibold">{token.slice(2, -2)}</strong>;
   }
 
-  return <em key={key}>{token.slice(1, -1)}</em>;
+  if (token.startsWith("__")) {
+    return <strong key={key} className="font-semibold">{token.slice(2, -2)}</strong>;
+  }
+
+  if (token.startsWith("~~")) {
+    return <del key={key} className="line-through">{token.slice(2, -2)}</del>;
+  }
+
+  return <em key={key} className="italic">{token.slice(1, -1)}</em>;
 }
 
 function safeMarkdownHref(href: string) {

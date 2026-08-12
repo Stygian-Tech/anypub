@@ -131,7 +131,47 @@ struct AppLogicTests {
         #expect(record.title == "Launch notes")
         #expect(record.path == "/launch")
         #expect(record.tags == ["release"])
+        #expect(record.langs == nil)
         #expect(record.textContent == "Launch notes\nBody")
+    }
+
+    @Test("pckt document record matches native discovery fields")
+    func pcktDocumentRecordCompatibility() throws {
+        let draft = try Draft(
+            accountDID: "did:plc:example",
+            publicationURI: "at://did:plc:example/site.standard.publication/abc",
+            publicationURL: "https://example.pckt.blog",
+            title: "Native pckt post",
+            path: "/native-pckt-post",
+            excerpt: "Summary",
+            tags: [],
+            markdown: "Body",
+            status: .published,
+            publishedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let record = ProtocolRecordBuilder().documentRecord(
+            draft: draft,
+            cover: nil,
+            content: .object(["$type": .string("blog.pckt.content"), "items": .array([])]),
+            pcktCompatible: true
+        )
+        #expect(record.tags == [])
+        #expect(record.langs == ["en"])
+
+        let wrapper = PcktDocumentRecord(
+            document: StrongReference(
+                uri: "at://did:plc:example/site.standard.document/record",
+                cid: "bafyreiexample"
+            ),
+            site: "at://did:plc:example/blog.pckt.publication/abc"
+        )
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(wrapper)) as? [String: Any]
+        let document = encoded?["document"] as? [String: Any]
+        #expect(encoded?["$type"] as? String == "blog.pckt.document")
+        #expect(document?["$type"] == nil)
+        #expect(document?["uri"] as? String == "at://did:plc:example/site.standard.document/record")
+        #expect(document?["cid"] as? String == "bafyreiexample")
     }
 
     @Test("Document record includes exact Leaflet content envelope")
@@ -333,6 +373,7 @@ struct AppLogicTests {
                 publishedAt: Date(timeIntervalSince1970: 1_800_000_000),
                 path: "/nonce-test",
                 tags: nil,
+                langs: nil,
                 coverImage: nil,
                 description: nil,
                 textContent: "Body",

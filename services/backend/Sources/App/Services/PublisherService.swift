@@ -52,7 +52,12 @@ struct PublisherService: Sendable {
         do {
             let content = try await preparedContent(prepared, account: account, req: req)
             let cover = try await coverBlob(for: draft, account: account, req: req)
-            let document = records.documentRecord(draft: draft, cover: cover, content: content)
+            let document = records.documentRecord(
+                draft: draft,
+                cover: cover,
+                content: content,
+                pcktCompatible: host == .pckt
+            )
             let documentResponse: CreateRecordResponse
             if let existingDocumentURI, isUpdate {
                 documentResponse = try await xrpc.putDocument(

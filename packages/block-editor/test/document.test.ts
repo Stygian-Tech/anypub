@@ -5,6 +5,7 @@ import {
   parseBlockDocument,
   reviseBlockDocument,
   reviseMarkdownDocument,
+  shouldInsertCodeBlockSoftBreak,
 } from "../src/model";
 
 const ids = () => {
@@ -38,5 +39,27 @@ describe("block document snapshots", () => {
     const document = importMarkdownDocument("Body", { revision: 2, createID: ids() });
     expect(() => reviseBlockDocument(document, document.blocks, 1)).toThrow(StaleBlockDocumentError);
     expect(() => parseBlockDocument({ ...document, markdown: "Different" })).toThrow(/does not match/);
+  });
+
+  it("preserves fenced code blocks containing blank lines", () => {
+    const markdown = "```swift\nlet first = 1\n\nlet second = 2\n```";
+    const document = importMarkdownDocument(markdown, { createID: ids() });
+
+    expect(document.blocks).toHaveLength(1);
+    expect(document.blocks[0]).toMatchObject({
+      kind: "code",
+      language: "swift",
+      source: markdown,
+    });
+    expect(document.markdown).toBe(markdown);
+  });
+
+  it("keeps Enter inside open code fences and exits after the closing fence", () => {
+    const open = importMarkdownDocument("```swift\nlet value = 1", { createID: ids() }).blocks[0]!;
+    const closed = importMarkdownDocument("```swift\nlet value = 1\n```", { createID: ids() }).blocks[0]!;
+
+    expect(shouldInsertCodeBlockSoftBreak(open, open.source.length)).toBe(true);
+    expect(shouldInsertCodeBlockSoftBreak(closed, closed.source.indexOf("let value"))).toBe(true);
+    expect(shouldInsertCodeBlockSoftBreak(closed, closed.source.length)).toBe(false);
   });
 });
