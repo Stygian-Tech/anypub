@@ -154,6 +154,43 @@ struct CalendarEventRecord: Codable, Equatable, Sendable {
     }
 }
 
+struct UserInputDiscussionRecord: Codable, Equatable, Sendable {
+    struct Image: Codable, Equatable, Sendable {
+        let image: ATProtoBlobRef
+        let alt: String
+    }
+
+    let type = "app.userinput.discussion"
+    let space: StrongReference
+    let title: String
+    let body: String?
+    let tags: [String]?
+    let images: [Image]?
+    let createdAt: ATProtoTimestamp
+
+    enum CodingKeys: String, CodingKey {
+        case type = "$type"
+        case space
+        case title
+        case body
+        case tags
+        case images
+        case createdAt
+    }
+}
+
+struct UserInputUpvoteRecord: Codable, Equatable, Sendable {
+    let type = "app.userinput.upvote"
+    let subject: StrongReference
+    let createdAt: ATProtoTimestamp
+
+    enum CodingKeys: String, CodingKey {
+        case type = "$type"
+        case subject
+        case createdAt
+    }
+}
+
 struct ProtocolRecordBuilder: Sendable {
     func documentRecord(
         draft: Draft,

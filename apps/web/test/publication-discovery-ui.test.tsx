@@ -6,7 +6,14 @@ import { pcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
 import { RightPanel } from "@/components/cms/right-panel";
 import type { Draft, Publication } from "@/lib/types";
 
+const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: navigation.replace }),
+}));
+
 beforeEach(() => {
+  navigation.replace.mockReset();
   const values = new Map<string, string>();
   Object.defineProperty(window, "localStorage", {
     configurable: true,
@@ -40,9 +47,8 @@ describe("publication discovery UI", () => {
 
     render(<CmsWorkspace />);
 
-    expect(await screen.findByText("Connect your publication account")).toBeInTheDocument();
-    expect(screen.queryByText("AnyPub could not reach the account service.")).not.toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Handle" })).toBeEnabled();
+    expect(await screen.findByText("Taking you to sign in…")).toBeInTheDocument();
+    expect(navigation.replace).toHaveBeenCalledWith("/login");
   });
 
   it("shows account identity, publication icons, and a complete publications inventory", async () => {
@@ -153,7 +159,7 @@ describe("publication discovery UI", () => {
     });
   });
 
-  it("logs out the active account and returns to the OAuth connect screen", async () => {
+  it("logs out the active account and returns to the login route", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (init?.method === "DELETE") {
@@ -180,7 +186,7 @@ describe("publication discovery UI", () => {
     render(<CmsWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
 
-    expect(await screen.findByText("Connect your publication account")).toBeInTheDocument();
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/login"));
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:8080/api/accounts/did%3Aplc%3Awriter",
       expect.objectContaining({ method: "DELETE", credentials: "include" }),

@@ -9,7 +9,7 @@ export const seedAccounts: LinkedAccount[] = [
     avatarURL: "",
     pdsURL: "https://bsky.social",
     scope:
-      "atproto transition:generic include:site.standard.authFull include:app.offprint.authFull include:blog.pckt.authFull include:community.lexicon.calendar.authFull",
+      "atproto transition:generic include:site.standard.authFull repo:app.offprint.document.article?action=create&action=update&action=delete include:blog.pckt.authFull include:community.lexicon.calendar.authFull",
     linkedAt: "2026-07-08T15:00:00.000Z",
     updatedAt: "2026-07-08T15:00:00.000Z",
   },
@@ -21,7 +21,7 @@ export const seedAccounts: LinkedAccount[] = [
     avatarURL: "",
     pdsURL: "https://example-pds.test",
     scope:
-      "atproto transition:generic include:site.standard.authFull include:app.offprint.authFull include:blog.pckt.authFull include:community.lexicon.calendar.authFull",
+      "atproto transition:generic include:site.standard.authFull repo:app.offprint.document.article?action=create&action=update&action=delete include:blog.pckt.authFull include:community.lexicon.calendar.authFull",
     linkedAt: "2026-07-07T15:00:00.000Z",
     updatedAt: "2026-07-07T15:00:00.000Z",
   },

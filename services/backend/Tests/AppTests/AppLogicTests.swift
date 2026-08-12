@@ -64,15 +64,65 @@ struct AppLogicTests {
         ) == "/a/3msmoumcr4d23-cafe-notes")
     }
 
-    @Test("OAuth scopes include standard.site, calendar, and blob upload transition")
+    @Test("OAuth scopes include publishing, calendar, feedback, and blob permissions")
     func oauthScopes() {
         let scopes = OAuthScopeBuilder.cmsScopes().split(separator: " ").map(String.init)
         #expect(scopes.contains("atproto"))
         #expect(scopes.contains("transition:generic"))
         #expect(scopes.contains("include:site.standard.authFull"))
-        #expect(scopes.contains("include:app.offprint.authFull"))
+        #expect(!scopes.contains("include:app.offprint.authFull"))
+        #expect(scopes.contains("repo:app.offprint.document.article?action=create&action=update&action=delete"))
         #expect(scopes.contains("include:blog.pckt.authFull"))
         #expect(scopes.contains("include:community.lexicon.calendar.authFull"))
+        #expect(scopes.contains("include:app.userinput.authFull"))
+        #expect(scopes.contains("blob:*/*"))
+    }
+
+    @Test("Feedback permission checks support full and granular OAuth grants")
+    func feedbackPermissions() {
+        #expect(FeedbackService.canCreateDiscussion(scope: "atproto include:app.userinput.authFull"))
+        #expect(FeedbackService.canCreateDiscussion(scope: "atproto include:app.userinput.authFull?aud=did:web:userinput.app"))
+        #expect(FeedbackService.canCreateDiscussion(scope: "repo:app.userinput.discussion?action=create"))
+        #expect(FeedbackService.canCreateDiscussion(scope: "repo?collection=app.userinput.discussion&action=create"))
+        #expect(FeedbackService.canCreateDiscussion(scope: "repo:*"))
+        #expect(!FeedbackService.canCreateDiscussion(scope: "atproto include:site.standard.authFull"))
+        #expect(FeedbackService.canUploadBlob(scope: "atproto blob:*/*", mimeType: "image/png"))
+        #expect(FeedbackService.canUploadBlob(scope: "blob:image/*", mimeType: "image/webp"))
+        #expect(FeedbackService.canUploadBlob(scope: "blob?accept=image%2Fpng", mimeType: "image/png"))
+        #expect(!FeedbackService.canUploadBlob(scope: "atproto transition:generic", mimeType: "image/png"))
+    }
+
+    @Test("User Input discussion records encode the native image and board envelope")
+    func userInputDiscussionRecord() throws {
+        let record = UserInputDiscussionRecord(
+            space: StrongReference(uri: FeedbackService.boardURI, cid: "board-cid"),
+            title: "Image uploads",
+            body: "A screenshot is attached.",
+            tags: ["bug"],
+            images: [
+                .init(
+                    image: ATProtoBlobRef(
+                        type: "blob",
+                        ref: .init(link: "bafkreifeedback"),
+                        mimeType: "image/png",
+                        size: 42
+                    ),
+                    alt: "Screenshot"
+                ),
+            ],
+            createdAt: ATProtoTimestamp(Date(timeIntervalSince1970: 1_800_000_000))
+        )
+        let object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])
+        #expect(object["$type"] as? String == "app.userinput.discussion")
+        #expect(object["title"] as? String == "Image uploads")
+        let space = try #require(object["space"] as? [String: Any])
+        #expect(space["uri"] as? String == FeedbackService.boardURI)
+        #expect(space["cid"] as? String == "board-cid")
+        let images = try #require(object["images"] as? [[String: Any]])
+        #expect(images.count == 1)
+        #expect(images[0]["alt"] as? String == "Screenshot")
+        let image = try #require(images[0]["image"] as? [String: Any])
+        #expect(image["mimeType"] as? String == "image/png")
     }
 
     @Test("Markdown renderer removes common Markdown syntax")

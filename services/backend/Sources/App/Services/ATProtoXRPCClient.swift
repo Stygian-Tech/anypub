@@ -455,6 +455,42 @@ struct ATProtoXRPCClient: Sendable {
         return try response.content.decode(UploadBlobResponse.self).blob
     }
 
+    func createUserInputDiscussion(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        record: UserInputDiscussionRecord,
+        client: Client
+    ) async throws -> CreateRecordResponse {
+        try await createRecord(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            collection: "app.userinput.discussion",
+            record: record,
+            client: client
+        )
+    }
+
+    func putUserInputUpvote(
+        account: LinkedAccount,
+        tokenEncryption: TokenEncryption,
+        database: Database,
+        rkey: String,
+        record: UserInputUpvoteRecord,
+        client: Client
+    ) async throws -> CreateRecordResponse {
+        try await putRecord(
+            account: account,
+            tokenEncryption: tokenEncryption,
+            database: database,
+            collection: "app.userinput.upvote",
+            rkey: rkey,
+            record: record,
+            client: client
+        )
+    }
+
     func deleteRecord(
         account: LinkedAccount,
         tokenEncryption: TokenEncryption,

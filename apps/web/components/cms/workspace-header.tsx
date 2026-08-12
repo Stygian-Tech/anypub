@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpenIcon, LibraryIcon, LogOutIcon, MoonIcon, RefreshCwIcon, RocketIcon, SunIcon } from "lucide-react";
+import { BookOpenIcon, LibraryIcon, LogOutIcon, MessageSquareTextIcon, MoonIcon, RefreshCwIcon, RocketIcon, SunIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -25,7 +25,7 @@ export function WorkspaceHeader({
   onLogOut,
   onViewChange,
 }: {
-  activeView: "posts" | "publications";
+  activeView: "posts" | "publications" | "feedback";
   theme: ThemePreference;
   publications: Publication[];
   isSyncing: boolean;
@@ -38,7 +38,7 @@ export function WorkspaceHeader({
   onCreateDraft: (publicationURI: string) => Promise<boolean>;
   onPublish: () => void;
   onLogOut: () => void;
-  onViewChange: (view: "posts" | "publications") => void;
+  onViewChange: (view: "posts" | "publications" | "feedback") => void;
 }) {
   return (
     <header className="grid min-h-16 shrink-0 grid-cols-1 items-center gap-3 border-b px-4 py-2 lg:grid-cols-[minmax(180px,1fr)_auto_minmax(320px,1fr)] lg:py-0">
@@ -73,6 +73,18 @@ export function WorkspaceHeader({
         >
           <LibraryIcon className="size-3.5" aria-hidden />
           Publications
+        </button>
+        <button
+          type="button"
+          aria-current={activeView === "feedback" ? "page" : undefined}
+          onClick={() => onViewChange("feedback")}
+          className={cn(
+            "flex h-8 items-center gap-2 rounded px-3 text-sm transition-colors",
+            activeView === "feedback" ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <MessageSquareTextIcon className="size-3.5" aria-hidden />
+          Feedback
         </button>
       </nav>
       <div className="flex min-w-0 items-center justify-end gap-2">

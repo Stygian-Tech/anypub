@@ -9,12 +9,20 @@ import { Input } from "@/components/ui/input";
 import { APIError } from "@/lib/api";
 import { startOAuth } from "@/lib/oauth-api";
 
+function navigateToAuthorization(url: string) {
+  window.location.assign(url);
+}
+
 export function OAuthConnectScreen({
   accountLoadFailed = false,
   onRetry,
+  returnTo = "/editor",
+  onAuthorize = navigateToAuthorization,
 }: {
   accountLoadFailed?: boolean;
   onRetry?: () => void;
+  returnTo?: string;
+  onAuthorize?: (url: string) => void;
 }) {
   const [handle, setHandle] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -27,8 +35,8 @@ export function OAuthConnectScreen({
     setError(null);
     setIsStarting(true);
     try {
-      const result = await startOAuth(handle, `${window.location.origin}/`);
-      window.location.assign(result.authorizationURL);
+      const result = await startOAuth(handle, new URL(returnTo, window.location.origin).toString());
+      onAuthorize(result.authorizationURL);
     } catch (caught) {
       setError(caught instanceof APIError ? caught.message : "Could not start AT Protocol OAuth.");
       setIsStarting(false);
