@@ -27,7 +27,7 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
     let type = "site.standard.document"
     let site: String
     let title: String
-    let publishedAt: Date
+    let publishedAt: ATProtoTimestamp
     let path: String?
     let tags: [String]?
     let langs: [String]?
@@ -35,7 +35,7 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
     let description: String?
     let textContent: String?
     let content: JSONValue?
-    let updatedAt: Date?
+    let updatedAt: ATProtoTimestamp?
 
     enum CodingKeys: String, CodingKey {
         case type = "$type"
@@ -50,6 +50,38 @@ struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
         case textContent
         case content
         case updatedAt
+    }
+}
+
+struct ATProtoTimestamp: Codable, Equatable, Sendable {
+    let date: Date
+
+    init(_ date: Date) {
+        self.date = date
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
+        guard let date = fractional.date(from: value) ?? standard.date(from: value) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid AT Protocol timestamp"
+            )
+        }
+        self.date = date
+    }
+
+    func encode(to encoder: Encoder) throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        var container = encoder.singleValueContainer()
+        try container.encode(formatter.string(from: date))
     }
 }
 
@@ -114,21 +146,22 @@ struct ProtocolRecordBuilder: Sendable {
         draft: Draft,
         cover: ATProtoBlobRef?,
         content: JSONValue? = nil,
+        textContent: String? = nil,
         pcktCompatible: Bool = false
     ) -> StandardSiteDocumentRecord {
         let tags = draft.tags()
         return StandardSiteDocumentRecord(
             site: draft.publicationURI,
             title: draft.title,
-            publishedAt: draft.publishedAt ?? draft.scheduledAt ?? Date(),
+            publishedAt: ATProtoTimestamp(draft.publishedAt ?? draft.scheduledAt ?? Date()),
             path: draft.path,
             tags: tags.isEmpty && !pcktCompatible ? nil : tags,
             langs: pcktCompatible ? ["en"] : nil,
             coverImage: cover,
             description: draft.excerpt,
-            textContent: draft.plaintext,
+            textContent: textContent ?? draft.plaintext,
             content: content,
-            updatedAt: Date()
+            updatedAt: ATProtoTimestamp(Date())
         )
     }
 

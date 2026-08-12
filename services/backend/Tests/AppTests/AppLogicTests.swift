@@ -163,10 +163,18 @@ struct AppLogicTests {
             draft: draft,
             cover: nil,
             content: .object(["$type": .string("blog.pckt.content"), "items": .array([])]),
+            textContent: "Summary\nBody",
             pcktCompatible: true
         )
         #expect(record.tags == [])
         #expect(record.langs == ["en"])
+        #expect(record.textContent == "Summary\nBody")
+
+        let encodedRecord = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any]
+        )
+        #expect((encodedRecord["publishedAt"] as? String)?.hasSuffix(".000Z") == true)
+        #expect((encodedRecord["updatedAt"] as? String)?.contains(".") == true)
 
         let wrapper = PcktDocumentRecord(
             document: StrongReference(
@@ -278,11 +286,16 @@ struct AppLogicTests {
 
         **bold** *italic* `code` ~~removed~~ ++underlined++ [linked](https://example.com)
         """)
-        let prepared = try PublicationContentAdapter.prepare(document: document, host: .pckt)
+        let prepared = try PublicationContentAdapter.prepare(
+            document: document,
+            host: .pckt,
+            description: "Article summary"
+        )
         let content = try #require(prepared.content.objectValue)
         let items = try #require(content["items"]?.arrayValue)
 
         #expect(items.map { $0.objectValue?["$type"] } == [
+            .string("blog.pckt.block.heading"),
             .string("blog.pckt.block.heading"),
             .string("blog.pckt.block.blockquote"),
             .string("blog.pckt.block.taskList"),
@@ -291,13 +304,16 @@ struct AppLogicTests {
             .string("blog.pckt.block.horizontalRule"),
             .string("blog.pckt.block.text"),
         ])
-        #expect(items[0].objectValue?["level"] == .integer(2))
-        #expect(items[2].objectValue?["content"]?.arrayValue?.map { $0.objectValue?["checked"] } == [.bool(true), .bool(false)])
-        #expect(items[3].objectValue?["start"] == .integer(3))
-        let orderedItemContent = items[3].objectValue?["content"]?.arrayValue?.first?.objectValue?["content"]?.arrayValue
+        #expect(items[0].objectValue?["level"] == .integer(3))
+        #expect(items[0].objectValue?["plaintext"] == .string("Article summary"))
+        #expect(items[1].objectValue?["level"] == .integer(2))
+        #expect(items[3].objectValue?["content"]?.arrayValue?.map { $0.objectValue?["checked"] } == [.bool(true), .bool(false)])
+        #expect(items[4].objectValue?["start"] == .integer(3))
+        let orderedItemContent = items[4].objectValue?["content"]?.arrayValue?.first?.objectValue?["content"]?.arrayValue
         #expect(orderedItemContent?.last?.objectValue?["$type"] == .string("blog.pckt.block.bulletList"))
-        #expect(items[4].objectValue?["language"] == .string("swift"))
-        #expect(items[4].objectValue?["plaintext"] == .string("let answer = 42"))
+        #expect(items[5].objectValue?["language"] == .string("swift"))
+        #expect(items[5].objectValue?["plaintext"] == .string("let answer = 42"))
+        #expect(prepared.textContent.hasPrefix("Article summary\nHeading"))
 
         let inline = try #require(items.last?.objectValue)
         let featureTypes = inline["facets"]?.arrayValue?.compactMap {
@@ -313,6 +329,34 @@ struct AppLogicTests {
         ])
         let link = inline["facets"]?.arrayValue?.last?.objectValue?["features"]?.arrayValue?.first?.objectValue
         #expect(link?["uri"] == .string("https://example.com"))
+    }
+
+    @Test("pckt content does not duplicate a description already in the body")
+    func pcktDescriptionDeduplication() throws {
+        let textDocument = CanonicalDocumentLoader.loadMarkdown("Summary")
+        let textPrepared = try PublicationContentAdapter.prepare(
+            document: textDocument,
+            host: .pckt,
+            description: "Summary"
+        )
+        let textItems = try #require(textPrepared.content.objectValue?["items"]?.arrayValue)
+        #expect(textItems.count == 1)
+        #expect(textPrepared.textContent == "Summary")
+    }
+
+    @Test("pckt content mirrors the native trailing text-block envelope")
+    func pcktTrailingTextBlock() throws {
+        let document = CanonicalDocumentLoader.loadMarkdown("- Final item")
+        let prepared = try PublicationContentAdapter.prepare(
+            document: document,
+            host: .pckt,
+            description: "Summary"
+        )
+        let items = try #require(prepared.content.objectValue?["items"]?.arrayValue)
+        #expect(items.first?.objectValue?["plaintext"] == .string("Summary"))
+        #expect(items.last?.objectValue?["$type"] == .string("blog.pckt.block.text"))
+        #expect(items.last?.objectValue?["plaintext"] == .string(""))
+        #expect(prepared.textContent == "Summary\nFinal item")
     }
 
     @Test("Facet byte offsets are calculated from UTF-8 plaintext")
@@ -380,7 +424,7 @@ struct AppLogicTests {
             let record = StandardSiteDocumentRecord(
                 site: "at://\(did)/site.standard.publication/test",
                 title: "Nonce test",
-                publishedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                publishedAt: ATProtoTimestamp(Date(timeIntervalSince1970: 1_800_000_000)),
                 path: "/nonce-test",
                 tags: nil,
                 langs: nil,

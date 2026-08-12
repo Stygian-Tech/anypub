@@ -43,7 +43,11 @@ struct PublisherService: Sendable {
         }
 
         let canonical = try CanonicalDocumentLoader.load(draft: draft)
-        let prepared = try PublicationContentAdapter.prepare(document: canonical, host: host)
+        let prepared = try PublicationContentAdapter.prepare(
+            document: canonical,
+            host: host,
+            description: host == .pckt ? draft.excerpt : nil
+        )
         let pcktPublicationURI = try await host == .pckt
             ? verifiedPcktPublicationURI(for: draft, account: account, req: req)
             : nil
@@ -60,6 +64,7 @@ struct PublisherService: Sendable {
                 draft: draft,
                 cover: cover,
                 content: content,
+                textContent: prepared.textContent,
                 pcktCompatible: host == .pckt
             )
             let documentResponse: CreateRecordResponse
@@ -123,7 +128,7 @@ struct PublisherService: Sendable {
             draft.documentCID = documentResponse.cid
             draft.platformDocumentURI = platformResponse?.uri
             draft.platformDocumentCID = platformResponse?.cid
-            draft.publishedAt = document.publishedAt
+            draft.publishedAt = document.publishedAt.date
             draft.typedStatus = .published
             draft.updatedAt = Date()
             try await draft.save(on: req.db)

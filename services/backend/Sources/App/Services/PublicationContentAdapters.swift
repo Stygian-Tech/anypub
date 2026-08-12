@@ -15,6 +15,7 @@ enum PublicationContentOffload: Equatable, Sendable {
 struct PreparedPublicationContent: Equatable, Sendable {
     let host: PublicationHost
     let content: JSONValue
+    let textContent: String
     let offload: PublicationContentOffload?
 
     func replacingOffload(with blob: ATProtoBlobRef) -> JSONValue {
@@ -38,11 +39,15 @@ struct PreparedPublicationContent: Equatable, Sendable {
 }
 
 enum PublicationContentAdapter {
-    static func prepare(document: CanonicalDocument, host: PublicationHost) throws -> PreparedPublicationContent {
+    static func prepare(
+        document: CanonicalDocument,
+        host: PublicationHost,
+        description: String? = nil
+    ) throws -> PreparedPublicationContent {
         switch host {
         case .leaflet: return try LeafletContentAdapter.prepare(document)
         case .offprint: return try OffprintContentAdapter.prepare(document)
-        case .pckt: return try PcktContentAdapter.prepare(document)
+        case .pckt: return try PcktContentAdapter.prepare(document, description: description)
         }
     }
 }
@@ -69,6 +74,7 @@ private enum LeafletContentAdapter {
         return PreparedPublicationContent(
             host: .leaflet,
             content: content,
+            textContent: document.plaintext,
             offload: data.count > 100 * 1_024 ? .leafletPages(data) : nil
         )
     }
@@ -139,7 +145,12 @@ private enum OffprintContentAdapter {
         guard try JSONEncoder().encode(content).count < 900_000 else {
             throw Abort(.unprocessableEntity, reason: "Article exceeds Offprint's record-size limit")
         }
-        return PreparedPublicationContent(host: .offprint, content: content, offload: nil)
+        return PreparedPublicationContent(
+            host: .offprint,
+            content: content,
+            textContent: document.plaintext,
+            offload: nil
+        )
     }
 
     private static func block(_ block: CanonicalBlock) -> JSONValue {
@@ -202,18 +213,48 @@ private enum OffprintContentAdapter {
 }
 
 private enum PcktContentAdapter {
-    static func prepare(_ document: CanonicalDocument) throws -> PreparedPublicationContent {
-        let items: JSONValue = .array(document.blocks.map(block))
+    static func prepare(_ document: CanonicalDocument, description: String?) throws -> PreparedPublicationContent {
+        var blocks = document.blocks
+        let summary = description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let insertsSummary = !summary.isEmpty && firstPlaintext(in: blocks) != summary
+        if insertsSummary {
+            blocks.insert(.heading(level: 3, content: RichText(plaintext: summary, spans: [])), at: 0)
+        }
+        if !endsInTextBlock(blocks) {
+            blocks.append(.paragraph(RichText(plaintext: "", spans: [])))
+        }
+        let items: JSONValue = .array(blocks.map(block))
         let content: JSONValue = .object([
             "$type": .string("blog.pckt.content"),
             "items": items,
         ])
         let data = try JSONEncoder().encode(items)
+        let textContent = ([insertsSummary ? summary : "", document.plaintext])
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
         return PreparedPublicationContent(
             host: .pckt,
             content: content,
+            textContent: textContent,
             offload: data.count > 20_000 ? .pcktItems(data) : nil
         )
+    }
+
+    private static func firstPlaintext(in blocks: [CanonicalBlock]) -> String? {
+        guard let first = blocks.first else { return nil }
+        switch first {
+        case .paragraph(let text), .heading(_, let text): return text.plaintext
+        case .quote(let lines): return lines.first?.plaintext
+        case .list(let list): return list.items.first?.content.plaintext
+        case .code(_, let source): return source
+        case .thematicBreak: return nil
+        }
+    }
+
+    private static func endsInTextBlock(_ blocks: [CanonicalBlock]) -> Bool {
+        guard let last = blocks.last else { return false }
+        if case .paragraph = last { return true }
+        return false
     }
 
     private static func block(_ block: CanonicalBlock) -> JSONValue {
