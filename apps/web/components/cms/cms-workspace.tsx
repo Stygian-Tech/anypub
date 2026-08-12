@@ -87,6 +87,11 @@ export function CmsWorkspace() {
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
+        if (error instanceof APIError && error.status === 401) {
+          setAccounts([]);
+          setAccountLoadState("ready");
+          return;
+        }
         setAccountLoadState("error");
       });
   }, []);

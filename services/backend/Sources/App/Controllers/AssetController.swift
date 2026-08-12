@@ -13,6 +13,7 @@ struct AssetController: RouteCollection {
 
     func list(req: Request) async throws -> [CoverAsset] {
         let accountDID = try req.query.get(String.self, at: "accountDID")
+        _ = try await req.requireAccountDID(accountDID)
         return try await CoverAsset.query(on: req.db)
             .filter(\.$accountDID, .equal, accountDID)
             .sort(\.$createdAt, .descending)
@@ -21,6 +22,7 @@ struct AssetController: RouteCollection {
 
     func upload(req: Request) async throws -> CoverAsset {
         let input = try req.content.decode(UploadCoverRequest.self)
+        _ = try await req.requireAccountDID(input.accountDID)
         let mimeType = input.file.contentType?.serialize().lowercased() ?? "application/octet-stream"
         guard Self.supportedImageTypes.contains(mimeType) else {
             throw Abort(.unsupportedMediaType, reason: "Upload a PNG, JPEG, GIF, or WebP image")
@@ -53,8 +55,12 @@ struct AssetController: RouteCollection {
     }
 
     func content(req: Request) async throws -> Response {
+        let account = try await req.authenticatedContext().account
         guard let assetID = req.parameters.get("assetID", as: UUID.self),
-              let asset = try await CoverAsset.find(assetID, on: req.db)
+              let asset = try await CoverAsset.query(on: req.db)
+                .filter(\.$id, .equal, assetID)
+                .filter(\.$accountDID, .equal, account.did)
+                .first()
         else {
             throw Abort(.notFound, reason: "Image asset not found")
         }

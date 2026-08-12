@@ -9,10 +9,7 @@ struct PublicationController: RouteCollection {
 
     func list(req: Request) async throws -> [PublicationResponse] {
         let accountDID = try req.query.get(String.self, at: "accountDID")
-        guard let account = try await LinkedAccount.query(on: req.db)
-            .filter(\.$did, .equal, accountDID)
-            .first()
-        else { throw Abort(.notFound, reason: "Linked account not found") }
+        let account = try await req.requireAccountDID(accountDID)
         return try await PublicationCache.query(on: req.db)
             .filter(\.$accountDID, .equal, accountDID)
             .sort(\.$name)
@@ -22,9 +19,7 @@ struct PublicationController: RouteCollection {
 
     func sync(req: Request) async throws -> [PublicationResponse] {
         let input = try req.content.decode(SyncPublicationsRequest.self)
-        guard let account = try await LinkedAccount.query(on: req.db).filter(\.$did, .equal, input.accountDID).first() else {
-            throw Abort(.notFound, reason: "Linked account not found")
-        }
+        let account = try await req.requireAccountDID(input.accountDID)
         return try await req.application.publicationDiscovery
             .sync(account: account, req: req)
             .map { PublicationResponse(publication: $0, pdsURL: account.pdsURL) }

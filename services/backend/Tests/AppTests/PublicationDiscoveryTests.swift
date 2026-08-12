@@ -297,9 +297,11 @@ struct PublicationDiscoveryTests {
             let did = "did:plc:manual"
             let account = linkedAccount(did: did)
             try await account.save(on: app.db)
+            let cookie = try await authenticatedCookie(for: did, app: app)
             app.publicationDiscovery = FixedPublicationDiscovery(accountDID: did)
 
             try await app.testing().test(.POST, "/api/publications/sync") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
                 try request.content.encode(SyncPublicationsRequest(accountDID: did))
             } afterResponse: { response in
                 #expect(response.status == .ok)
@@ -316,12 +318,15 @@ struct PublicationDiscoveryTests {
         try await withApp(configure: configure) { app in
             let did = "did:plc:identity"
             try await linkedAccount(did: did).save(on: app.db)
+            let cookie = try await authenticatedCookie(for: did, app: app)
             app.accountProfileDiscovery = FixedAccountProfileDiscovery(
                 displayName: "Sam Writer",
                 avatarCID: "avatar-cid"
             )
 
-            try await app.testing().test(.GET, "/api/accounts") { response in
+            try await app.testing().test(.GET, "/api/accounts") { request in
+                request.headers.replaceOrAdd(name: .cookie, value: cookie)
+            } afterResponse: { response in
                 #expect(response.status == .ok)
                 expectContent([AccountResponse].self, response) { accounts in
                     #expect(accounts.first?.displayName == "Sam Writer")

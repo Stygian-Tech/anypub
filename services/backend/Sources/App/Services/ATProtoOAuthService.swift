@@ -56,7 +56,7 @@ struct ATProtoOAuthService: Sendable {
         )
     }
 
-    func start(handle: String, redirectURL: String?, req: Request) async throws -> OAuthStartResponse {
+    func start(handle: String, redirectURL: String?, browserSessionID: UUID, req: Request) async throws -> OAuthStartResponse {
         let config = req.application.anypubConfig
         let normalizedHandle = try normalizeHandle(handle)
         let identity = try await resolveIdentity(normalizedHandle, client: req.client)
@@ -116,6 +116,7 @@ struct ATProtoOAuthService: Sendable {
             pdsURL: identity.pdsURL,
             dpopKeyJSON: try req.application.tokenEncryption.seal(dpopKey.exportJSON()),
             expectedDID: identity.did,
+            browserSessionID: browserSessionID,
             expiresAt: Date().addingTimeInterval(10 * 60)
         )
         try await stateRecord.save(on: req.db)

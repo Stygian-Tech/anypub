@@ -4,7 +4,7 @@ func routes(_ app: Application) throws {
     let auth = AuthController()
     try app.register(collection: auth)
 
-    let api = app.grouped("api")
+    let api = app.grouped("api").grouped(BrowserSessionAuthenticator())
     try api.register(collection: AccountController())
     try api.register(collection: PublicationController())
     try api.register(collection: DraftController())

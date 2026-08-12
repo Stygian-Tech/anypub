@@ -34,6 +34,9 @@ final class OAuthStateRecord: Model, Content, @unchecked Sendable {
     @OptionalField(key: "expected_did")
     var expectedDID: String?
 
+    @OptionalField(key: "browser_session_id")
+    var browserSessionID: UUID?
+
     @Field(key: "created_at")
     var createdAt: Date
 
@@ -53,6 +56,7 @@ final class OAuthStateRecord: Model, Content, @unchecked Sendable {
         pdsURL: String? = nil,
         dpopKeyJSON: String? = nil,
         expectedDID: String? = nil,
+        browserSessionID: UUID? = nil,
         createdAt: Date = Date(),
         expiresAt: Date
     ) {
@@ -66,6 +70,7 @@ final class OAuthStateRecord: Model, Content, @unchecked Sendable {
         self.pdsURL = pdsURL
         self.dpopKeyJSON = dpopKeyJSON
         self.expectedDID = expectedDID
+        self.browserSessionID = browserSessionID
         self.createdAt = createdAt
         self.expiresAt = expiresAt
     }

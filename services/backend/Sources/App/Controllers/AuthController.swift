@@ -18,9 +18,20 @@ struct AuthController: RouteCollection {
         JWKSResponse(keys: [])
     }
 
-    func start(req: Request) async throws -> OAuthStartResponse {
+    func start(req: Request) async throws -> Response {
         let input = try req.content.decode(OAuthStartRequest.self)
-        return try await ATProtoOAuthService().start(handle: input.handle, redirectURL: input.redirectURL, req: req)
+        let browserSession = try await BrowserSessionService().create(req: req)
+        let sessionID = try browserSession.session.requireID()
+        let payload = try await ATProtoOAuthService().start(
+            handle: input.handle,
+            redirectURL: input.redirectURL,
+            browserSessionID: sessionID,
+            req: req
+        )
+        let response = Response(status: .ok)
+        try response.content.encode(payload)
+        BrowserSessionService().setCookie(browserSession.token, on: response, req: req)
+        return response
     }
 
     func callback(req: Request) async throws -> Response {
@@ -37,13 +48,21 @@ struct AuthController: RouteCollection {
             try await stateRecord.delete(on: req.db)
             throw Abort(.badRequest, reason: "OAuth state expired")
         }
+        let browserSession = try await BrowserSessionService().requireSession(req: req)
+        guard stateRecord.browserSessionID == browserSession.id else {
+            throw Abort(.unauthorized, reason: "OAuth callback does not belong to this browser session")
+        }
         let completion = try await ATProtoOAuthService().complete(
             state: stateRecord,
             code: code,
             issuer: issuer,
             req: req
         )
-        _ = try await persistAccountAndDiscover(completion: completion, req: req)
+        let linkedAccount = try await persistAccountAndDiscover(completion: completion, req: req)
+        browserSession.accountDID = linkedAccount.did
+        browserSession.updatedAt = Date()
+        browserSession.expiresAt = Date().addingTimeInterval(BrowserSessionService.lifetime)
+        try await browserSession.save(on: req.db)
         try await stateRecord.delete(on: req.db)
         return req.redirect(to: stateRecord.redirectURL)
     }
