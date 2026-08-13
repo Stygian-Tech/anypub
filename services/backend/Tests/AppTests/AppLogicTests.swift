@@ -166,7 +166,8 @@ struct AppLogicTests {
         #expect(PublicationHostDetector.detect(themeType: nil, themeName: "Leaflet editorial", publicationURL: nil) == .leaflet)
         #expect(PublicationHostDetector.detect(themeType: "blog.pckt.theme", themeName: nil, publicationURL: "https://offprint.example") == .pckt)
         #expect(PublicationHostDetector.detect(themeType: nil, themeName: "Markpub Markdown", publicationURL: nil) == .markpub)
-        #expect(PublicationHostDetector.detect(themeType: nil, themeName: nil, publicationURL: "https://roll-your-own.example") == .markpub)
+        #expect(PublicationHostDetector.detect(themeType: nil, themeName: nil, publicationURL: "https://roll-your-own.example") == .unknown)
+        #expect(PublicationHostDetector.detect(themeType: nil, themeName: nil, publicationURL: nil) == .unknown)
     }
 
     @Test("AT record references parse repo, collection, and rkey")

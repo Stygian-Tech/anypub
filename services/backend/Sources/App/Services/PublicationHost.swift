@@ -5,6 +5,7 @@ enum PublicationHost: String, Codable, Equatable, Sendable {
     case markpub
     case offprint
     case pckt
+    case unknown
 }
 
 struct PublicationHostDetector: Sendable {
@@ -20,7 +21,7 @@ struct PublicationHostDetector: Sendable {
             return host
         }
 
-        return detect(in: [publicationURL]) ?? .markpub
+        return detect(in: [publicationURL]) ?? .unknown
     }
 
     private static func detect(in candidates: [String?]) -> PublicationHost? {

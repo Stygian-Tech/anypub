@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
+import { UnknownPublishingNotice } from "@/components/cms/unknown-publishing-notice";
 import { ExperimentalBadge, ExperimentalGlyph } from "@/components/cms/experimental-badge";
 import { assetContentURL, uploadImage } from "@/lib/asset-api";
 import { calendarItemsFromDrafts } from "@/lib/cms-data";
@@ -171,6 +172,7 @@ export function RightPanel({
                     {selectedPublication?.url ?? draft.publicationURI}
                   </span>
                   {selectedPublication?.host === "pckt" ? <PcktPublishingNotice className="mt-2" /> : null}
+                  {selectedPublication?.host === "unknown" ? <UnknownPublishingNotice className="mt-2" /> : null}
                 </CardContent>
               </Card>
               <Field>

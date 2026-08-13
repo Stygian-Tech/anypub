@@ -272,7 +272,9 @@ struct ATProtoOAuthService: Sendable {
                     nonce: responseNonce
                 )
             }
-            if attempt == 0, let nextNonce = response.headers.first(name: "DPoP-Nonce") {
+            if attempt == 0,
+               oauthErrorName(response) == "use_dpop_nonce",
+               let nextNonce = response.headers.first(name: "DPoP-Nonce") {
                 nonce = nextNonce
                 continue
             }
@@ -397,6 +399,12 @@ private func oauthErrorReason(_ response: ClientResponse) -> String {
           !value.isEmpty
     else { return "OAuth server rejected the request" }
     return "OAuth server rejected the request: \(String(value.prefix(300)))"
+}
+
+private func oauthErrorName(_ response: ClientResponse) -> String? {
+    struct ErrorResponse: Decodable { let error: String }
+    guard let body = response.body else { return nil }
+    return try? JSONDecoder().decode(ErrorResponse.self, from: Data(body.readableBytesView)).error
 }
 
 private func urlComponent(_ value: String) -> String {

@@ -91,7 +91,7 @@ struct ApplyWriteResult: Codable, Sendable {
 }
 
 private struct XRPCErrorResponse: Decodable {
-    let error: String?
+    let error: String
     let message: String?
 }
 
@@ -119,8 +119,8 @@ struct ATProtoXRPCClient: Sendable {
                 "rkey": "self",
             ]
         )
-        let response = try await client.get(URI(string: uri)).get()
-        if response.status == .notFound { return nil }
+        let response = try await xrpcGet(uri, client: client)
+        if isXRPCError(response, named: "RecordNotFound", fallbackStatus: .notFound) { return nil }
         try requireSuccess(response, operation: "account profile lookup")
         return try response.content.decode(RepositoryRecord<JSONValue>.self)
     }
@@ -137,7 +137,7 @@ struct ATProtoXRPCClient: Sendable {
         ]
         if let cursor { query["cursor"] = cursor }
         let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.listRecords", query: query)
-        let response = try await client.get(URI(string: uri)).get()
+        let response = try await xrpcGet(uri, client: client)
         try requireSuccess(response, operation: "publication listing")
         return try response.content.decode(ListRecordsResponse<JSONValue>.self)
     }
@@ -153,13 +153,8 @@ struct ATProtoXRPCClient: Sendable {
             method: "com.atproto.repo.getRecord",
             query: ["repo": account.did, "collection": collection, "rkey": rkey]
         )
-        let response = try await client.get(URI(string: uri)).get()
-        if response.status == .notFound { return nil }
-        if response.status == .badRequest,
-           let error = try? response.content.decode(XRPCErrorResponse.self),
-           error.error == "RecordNotFound" {
-            return nil
-        }
+        let response = try await xrpcGet(uri, client: client)
+        if isXRPCError(response, named: "RecordNotFound", fallbackStatus: .notFound) { return nil }
         try requireSuccess(response, operation: "record lookup")
         return try response.content.decode(RepositoryRecord<JSONValue>.self)
     }
@@ -170,7 +165,7 @@ struct ATProtoXRPCClient: Sendable {
             method: "com.atproto.sync.getLatestCommit",
             query: ["did": account.did]
         )
-        let response = try await client.get(URI(string: uri)).get()
+        let response = try await xrpcGet(uri, client: client)
         try requireSuccess(response, operation: "repository head lookup")
         return try response.content.decode(LatestCommitResponse.self)
     }
@@ -403,11 +398,9 @@ struct ATProtoXRPCClient: Sendable {
             method: "com.atproto.repo.getRecord",
             query: ["repo": account.did, "collection": collection, "rkey": rkey]
         )
-        let response = try await client.get(URI(string: uri)).get()
-        if response.status == .notFound { return false }
-        guard (200..<300).contains(response.status.code) else {
-            throw Abort(.badGateway, reason: "PDS rejected record lookup")
-        }
+        let response = try await xrpcGet(uri, client: client)
+        if isXRPCError(response, named: "RecordNotFound", fallbackStatus: .notFound) { return false }
+        try requireSuccess(response, operation: "record lookup")
         return true
     }
 
@@ -449,9 +442,7 @@ struct ATProtoXRPCClient: Sendable {
             buffer.writeBytes(data)
             req.body = buffer
         }
-        guard (200..<300).contains(response.status.code) else {
-            throw Abort(.badGateway, reason: "PDS rejected blob upload")
-        }
+        try requireSuccess(response, operation: "blob upload")
         return try response.content.decode(UploadBlobResponse.self).blob
     }
 
@@ -511,9 +502,7 @@ struct ATProtoXRPCClient: Sendable {
         ) { req in
             try req.content.encode(input)
         }
-        guard (200..<300).contains(response.status.code) else {
-            throw Abort(.badGateway, reason: "PDS rejected record deletion")
-        }
+        try requireSuccess(response, operation: "record deletion")
     }
 
     private func createRecord<Record: Codable & Sendable>(
@@ -532,9 +521,7 @@ struct ATProtoXRPCClient: Sendable {
         ) { req in
             try req.content.encode(input)
         }
-        guard (200..<300).contains(response.status.code) else {
-            throw Abort(.badGateway, reason: "PDS rejected record creation")
-        }
+        try requireSuccess(response, operation: "record creation")
         return try response.content.decode(CreateRecordResponse.self)
     }
 
@@ -555,9 +542,7 @@ struct ATProtoXRPCClient: Sendable {
         ) { req in
             try req.content.encode(input)
         }
-        guard (200..<300).contains(response.status.code) else {
-            throw Abort(.badGateway, reason: "PDS rejected record update")
-        }
+        try requireSuccess(response, operation: "record update")
         return try response.content.decode(CreateRecordResponse.self)
     }
 
@@ -577,17 +562,13 @@ struct ATProtoXRPCClient: Sendable {
         ) { request in
             try request.content.encode(input)
         }
-        if response.status == .badRequest,
-           let error = try? response.content.decode(XRPCErrorResponse.self),
-           error.error == "InvalidSwap" {
+        if let error = xrpcError(response), error.error == "InvalidSwap" {
             throw Abort(
                 .conflict,
                 reason: error.message ?? "The repository changed during publishing; retry the operation"
             )
         }
-        guard (200..<300).contains(response.status.code) else {
-            throw Abort(.badGateway, reason: "PDS rejected the atomic repository transaction")
-        }
+        try requireSuccess(response, operation: "atomic repository transaction")
         return try response.content.decode(ApplyWritesResponse.self)
     }
 
@@ -617,12 +598,14 @@ struct ATProtoXRPCClient: Sendable {
                 response = try await client.get(URI(string: url)) { request in
                     request.headers.replaceOrAdd(name: .authorization, value: "DPoP \(accessToken)")
                     request.headers.replaceOrAdd(name: "DPoP", value: proof)
+                    request.headers.replaceOrAdd(name: .accept, value: "application/json")
                     try configure(&request)
                 }.get()
             case .POST:
                 response = try await client.post(URI(string: url)) { request in
                     request.headers.replaceOrAdd(name: .authorization, value: "DPoP \(accessToken)")
                     request.headers.replaceOrAdd(name: "DPoP", value: proof)
+                    request.headers.replaceOrAdd(name: .accept, value: "application/json")
                     try configure(&request)
                 }.get()
             default:
@@ -632,10 +615,8 @@ struct ATProtoXRPCClient: Sendable {
             guard let responseNonce = response.headers.first(name: "DPoP-Nonce") else {
                 throw Abort(.badGateway, reason: "PDS omitted its required DPoP nonce")
             }
-            if responseNonce != nonce {
-                await dpopNonces.set(responseNonce, for: nonceKey)
-                if response.status == .badRequest || response.status == .unauthorized { continue }
-            }
+            if responseNonce != nonce { await dpopNonces.set(responseNonce, for: nonceKey) }
+            if isXRPCError(response, named: "use_dpop_nonce") { continue }
             if response.status == .unauthorized, !refreshed {
                 accessToken = try await refresh(
                     account: account,
@@ -721,7 +702,9 @@ struct ATProtoXRPCClient: Sendable {
                 }
                 return token.accessToken
             }
-            if attempt == 0, let nextNonce = response.headers.first(name: "DPoP-Nonce") {
+            if attempt == 0,
+               xrpcError(response)?.error == "use_dpop_nonce",
+               let nextNonce = response.headers.first(name: "DPoP-Nonce") {
                 nonce = nextNonce
                 continue
             }
@@ -732,16 +715,46 @@ struct ATProtoXRPCClient: Sendable {
 
     private func requireSuccess(_ response: ClientResponse, operation: String) throws {
         guard (200..<300).contains(response.status.code) else {
-            throw Abort(.badGateway, reason: "PDS rejected \(operation)")
+            let error = xrpcError(response)
+            let detail = error.map { value in
+                value.message.map { "\(value.error): \($0)" } ?? value.error
+            }
+            throw Abort(.badGateway, reason: detail ?? "PDS rejected \(operation) (HTTP \(response.status.code))")
         }
     }
 
+    private func xrpcGet(_ url: String, client: Client) async throws -> ClientResponse {
+        try await client.get(URI(string: url)) { request in
+            request.headers.replaceOrAdd(name: .accept, value: "application/json")
+        }.get()
+    }
+
+    private func xrpcError(_ response: ClientResponse) -> XRPCErrorResponse? {
+        try? response.content.decode(XRPCErrorResponse.self)
+    }
+
+    private func isXRPCError(
+        _ response: ClientResponse,
+        named name: String,
+        fallbackStatus: HTTPResponseStatus? = nil
+    ) -> Bool {
+        if xrpcError(response)?.error == name { return true }
+        return fallbackStatus == response.status
+    }
+
     private func xrpcURL(pdsURL: String, method: String, query: [String: String] = [:]) throws -> String {
-        var components = URLComponents(string: "\(pdsURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/xrpc/\(method)")
+        guard var components = URLComponents(string: pdsURL),
+              components.scheme?.lowercased() == "https",
+              components.host != nil
+        else { throw Abort(.badRequest, reason: "Invalid PDS URL") }
+        components.path = "/xrpc/\(method)"
+        components.fragment = nil
         if !query.isEmpty {
-            components?.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+            components.queryItems = query.sorted(by: { $0.key < $1.key }).map { URLQueryItem(name: $0.key, value: $0.value) }
+        } else {
+            components.query = nil
         }
-        guard let url = components?.url?.absoluteString else {
+        guard let url = components.url?.absoluteString else {
             throw Abort(.badRequest, reason: "Invalid PDS URL")
         }
         return url

@@ -77,7 +77,7 @@ enum PublicationContentAdapter {
         }
         switch host {
         case .leaflet: return try LeafletContentAdapter.prepare(document, images: imageMap)
-        case .markpub: return try MarkpubContentAdapter.prepare(document, images: imageMap)
+        case .markpub, .unknown: return try MarkpubContentAdapter.prepare(document, images: imageMap)
         case .offprint: return try OffprintContentAdapter.prepare(document, images: imageMap)
         case .pckt: return try PcktContentAdapter.prepare(document, description: description, images: imageMap)
         }
