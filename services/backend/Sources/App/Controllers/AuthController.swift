@@ -52,7 +52,8 @@ struct AuthController: RouteCollection {
         guard stateRecord.browserSessionID == browserSession.id else {
             throw Abort(.unauthorized, reason: "OAuth callback does not belong to this browser session")
         }
-        let completion = try await ATProtoOAuthService().complete(
+        let oauth = ATProtoOAuthService()
+        let completion = try await oauth.complete(
             state: stateRecord,
             code: code,
             issuer: issuer,
@@ -64,7 +65,10 @@ struct AuthController: RouteCollection {
         browserSession.expiresAt = Date().addingTimeInterval(BrowserSessionService.lifetime)
         try await browserSession.save(on: req.db)
         try await stateRecord.delete(on: req.db)
-        return req.redirect(to: stateRecord.redirectURL)
+        return req.redirect(to: oauth.safeRedirect(
+            stateRecord.redirectURL,
+            config: req.application.anypubConfig
+        ))
     }
 
     @discardableResult

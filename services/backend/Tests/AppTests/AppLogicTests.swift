@@ -78,6 +78,20 @@ struct AppLogicTests {
         #expect(scopes.contains("blob:*/*"))
     }
 
+    @Test("OAuth callbacks always return to the editor")
+    func oauthCallbackRedirect() {
+        let config = AppConfig.load(environment: [
+            "APP_PUBLIC_URL": "https://api.anypub.at",
+            "WEB_PUBLIC_URL": "https://anypub.at",
+        ])
+        let service = ATProtoOAuthService()
+
+        #expect(service.safeRedirect("https://anypub.at/editor", config: config) == "https://anypub.at/editor")
+        #expect(service.safeRedirect(nil, config: config) == "https://anypub.at/editor")
+        #expect(service.safeRedirect("https://anypub.at/", config: config) == "https://anypub.at/editor")
+        #expect(service.safeRedirect("https://elsewhere.example/editor", config: config) == "https://anypub.at/editor")
+    }
+
     @Test("Feedback permission checks support full and granular OAuth grants")
     func feedbackPermissions() {
         #expect(FeedbackService.canCreateDiscussion(scope: "atproto include:app.userinput.authFull"))
