@@ -14,6 +14,7 @@ export async function uploadImage(accountDID: string, file: File, altText?: stri
   const response = await fetch(`${API_BASE}/api/assets/upload`, {
     method: "POST",
     credentials: "include",
+    headers: { accept: "application/json" },
     body,
   });
   if (!response.ok) {

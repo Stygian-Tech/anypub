@@ -283,7 +283,7 @@ struct PublicationDiscoveryTests {
             )
 
             #expect(result.map(\.name) == ["Inserted", "Updated"])
-            #expect(result.first(where: { $0.name == "Inserted" })?.host == "markpub")
+            #expect(result.first(where: { $0.name == "Inserted" })?.host == "unknown")
             #expect(result.first(where: { $0.name == "Updated" })?.cid == "test-cid")
             #expect(result.first(where: { $0.name == "Updated" })?.host == "offprint")
             #expect(result.first(where: { $0.name == "Updated" })?.iconCID == "updated-icon-cid")

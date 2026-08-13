@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { PcktPublishingNotice } from "@/components/cms/pckt-publishing-notice";
+import { UnknownPublishingNotice } from "@/components/cms/unknown-publishing-notice";
 import { PublicationIcon } from "@/components/cms/publication-icon";
 import { ExperimentalBadge } from "@/components/cms/experimental-badge";
 import type { Draft, Publication } from "@/lib/types";
@@ -65,6 +66,7 @@ export function NewDraftDialog({
                 </span>
               </button>
               {publication.host === "pckt" ? <PcktPublishingNotice /> : null}
+              {publication.host === "unknown" ? <UnknownPublishingNotice /> : null}
             </div>
           ))}
         </div>
@@ -109,6 +111,7 @@ export function ChangePublicationDialog({
                 </span>
               </button>
               {publication.host === "pckt" ? <PcktPublishingNotice /> : null}
+              {publication.host === "unknown" ? <UnknownPublishingNotice /> : null}
             </div>
           ))}
         </div>
