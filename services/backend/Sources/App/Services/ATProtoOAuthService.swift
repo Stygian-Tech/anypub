@@ -315,16 +315,19 @@ struct ATProtoOAuthService: Sendable {
         return value
     }
 
-    private func safeRedirect(_ requested: String?, config: AppConfig) -> String {
+    func safeRedirect(_ requested: String?, config: AppConfig) -> String {
+        let editorURL = "\(config.webPublicURL)/editor"
         guard let requested,
               let requestedURL = URLComponents(string: requested),
               let webURL = URLComponents(string: config.webPublicURL),
               requestedURL.scheme == webURL.scheme,
               requestedURL.host == webURL.host,
               requestedURL.port == webURL.port,
+              requestedURL.path == "/editor",
               requestedURL.user == nil,
-              requestedURL.password == nil
-        else { return config.webPublicURL }
+              requestedURL.password == nil,
+              requestedURL.fragment == nil
+        else { return editorURL }
         return requested
     }
 
