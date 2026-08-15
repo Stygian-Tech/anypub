@@ -264,7 +264,7 @@ export function FeedbackSection({
                             onClick={() => toggleTag(tag.value)}
                             disabled={!canSubmit || isSubmitting}
                             className={cn(
-                              "rounded-full border px-3 py-1 text-sm transition-colors disabled:opacity-50",
+                              "min-h-11 rounded-full border px-4 py-2 text-sm transition-colors disabled:opacity-50 xl:min-h-0 xl:px-3 xl:py-1",
                               selected
                                 ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
                                 : "border-border text-muted-foreground hover:border-blue-500/50 hover:text-foreground",
@@ -326,7 +326,7 @@ export function FeedbackSection({
                           <button
                             type="button"
                             onClick={() => removeImage(image.id)}
-                            className="absolute right-1 top-1 flex size-7 items-center justify-center rounded-full bg-background/90 shadow-sm"
+                            className="absolute top-1 right-1 flex size-11 items-center justify-center rounded-full bg-background/90 shadow-sm xl:size-8"
                           >
                             <XIcon className="size-4" aria-hidden />
                             <span className="sr-only">Remove {image.file.name}</span>

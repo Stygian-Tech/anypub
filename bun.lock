@@ -11,7 +11,6 @@
     "apps/web": {
       "name": "@anypub/web",
       "dependencies": {
-        "@anypub/block-editor": "workspace:*",
         "@radix-ui/react-dialog": "1.1.19",
         "@radix-ui/react-dropdown-menu": "2.1.20",
         "@radix-ui/react-popover": "1.1.19",
@@ -20,6 +19,7 @@
         "@radix-ui/react-slot": "1.3.0",
         "@radix-ui/react-tabs": "1.1.17",
         "@radix-ui/react-tooltip": "1.2.12",
+        "@stygian/markdown-editor": "workspace:*",
         "class-variance-authority": "0.7.1",
         "clsx": "2.1.1",
         "date-fns": "4.4.0",
@@ -48,27 +48,32 @@
       },
     },
     "packages/block-editor": {
-      "name": "@anypub/block-editor",
+      "name": "@stygian/markdown-editor",
       "version": "0.1.0",
       "dependencies": {
-        "prism-react-renderer": "^2.4.1",
+        "clsx": "2.1.1",
+        "lucide-react": "1.24.0",
+        "prism-react-renderer": "2.4.1",
+        "tailwind-merge": "3.6.0",
       },
       "devDependencies": {
+        "@testing-library/jest-dom": "6.9.1",
+        "@testing-library/react": "16.3.2",
         "@types/react": "19.2.17",
         "@types/react-dom": "19.2.3",
         "eslint": "9.39.1",
         "eslint-config-next": "16.2.10",
+        "jsdom": "29.1.1",
         "react": "19.2.7",
         "react-dom": "19.2.7",
+        "tailwindcss": "4.3.2",
         "typescript": "5.9.3",
         "vitest": "4.1.10",
       },
       "peerDependencies": {
-        "clsx": ">=2.1.0",
-        "lucide-react": ">=0.400.0",
         "react": ">=19.0.0",
         "react-dom": ">=19.0.0",
-        "tailwind-merge": ">=3.0.0",
+        "tailwindcss": ">=4.0.0",
       },
     },
   },
@@ -76,8 +81,6 @@
     "@adobe/css-tools": ["@adobe/css-tools@4.5.0", "", {}, "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q=="],
 
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
-
-    "@anypub/block-editor": ["@anypub/block-editor@workspace:packages/block-editor"],
 
     "@anypub/web": ["@anypub/web@workspace:apps/web"],
 
@@ -430,6 +433,8 @@
     "@rtsao/scc": ["@rtsao/scc@1.1.0", "", {}, "sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
+
+    "@stygian/markdown-editor": ["@stygian/markdown-editor@workspace:packages/block-editor"],
 
     "@swc/helpers": ["@swc/helpers@0.5.15", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g=="],
 
@@ -1083,7 +1088,7 @@
 
     "react-dom": ["react-dom@19.2.7", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.7" } }, "sha512-t0BRVXvbiE/o20Hfw669rLbMCDWtYZLvmJigy2f0MxsXF+71pxhR3xOkspmsO8h3ZlNzyibAmtCa3l4lYKk6gQ=="],
 
-    "react-is": ["react-is@16.13.1", "", {}, "sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ=="],
+    "react-is": ["react-is@17.0.2", "", {}, "sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w=="],
 
     "react-remove-scroll": ["react-remove-scroll@2.7.2", "", { "dependencies": { "react-remove-scroll-bar": "^2.3.7", "react-style-singleton": "^2.2.3", "tslib": "^2.1.0", "use-callback-ref": "^1.3.3", "use-sidecar": "^1.1.3" }, "peerDependencies": { "@types/react": "*", "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc" }, "optionalPeers": ["@types/react"] }, "sha512-Iqb9NjCCTt6Hf+vOdNIZGdTiH1QSqr27H/Ek9sv/a97gfueI/5h1s3yRi1nngzMUaOOToin5dI1dXKdXiF+u0Q=="],
 
@@ -1337,7 +1342,7 @@
 
     "pretty-format/ansi-styles": ["ansi-styles@5.2.0", "", {}, "sha512-Cxwpt2SfTzTtXcfOlzGEee8O+c+MmUgGrNiBcXnuWxuFJHe6a5Hz7qwhwe5OgaSYI0IJvkLqWX1ASG+cJOkEiA=="],
 
-    "pretty-format/react-is": ["react-is@17.0.2", "", {}, "sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w=="],
+    "prop-types/react-is": ["react-is@16.13.1", "", {}, "sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ=="],
 
     "sharp/semver": ["semver@7.8.5", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA=="],
 

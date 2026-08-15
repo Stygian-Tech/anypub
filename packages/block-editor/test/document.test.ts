@@ -39,6 +39,27 @@ describe("block document snapshots", () => {
     const document = importMarkdownDocument("Body", { revision: 2, createID: ids() });
     expect(() => reviseBlockDocument(document, document.blocks, 1)).toThrow(StaleBlockDocumentError);
     expect(() => parseBlockDocument({ ...document, markdown: "Different" })).toThrow(/does not match/);
+    expect(() => parseBlockDocument({ ...document, blocks: [{ id: "missing-source" }] })).toThrow(/Invalid/);
+  });
+
+  it("normalizes derived block fields from older snapshots", () => {
+    const markdown = "![Diagram](anypub-asset://d9428888-122b-11e1-b85c-61cd3cbb3210)";
+    const current = importMarkdownDocument(markdown, { createID: ids() });
+    const legacy = {
+      ...current,
+      blocks: [{
+        id: current.blocks[0]!.id,
+        source: markdown,
+        kind: "image",
+        alt: "Diagram",
+        assetID: "d9428888-122b-11e1-b85c-61cd3cbb3210",
+      }],
+    };
+
+    expect(parseBlockDocument(legacy).blocks[0]).toMatchObject({
+      kind: "image",
+      url: "anypub-asset://d9428888-122b-11e1-b85c-61cd3cbb3210",
+    });
   });
 
   it("preserves fenced code blocks containing blank lines", () => {
@@ -63,13 +84,17 @@ describe("block document snapshots", () => {
     expect(shouldInsertCodeBlockSoftBreak(closed, closed.source.length)).toBe(false);
   });
 
-  it("round-trips uploaded images and embedded links as typed blocks", () => {
-    const assetID = "d9428888-122b-11e1-b85c-61cd3cbb3210";
-    const markdown = `![Diagram](anypub-asset://${assetID})\n\n@[embed](https://example.com/article)`;
+  it("round-trips standard and custom-scheme images with embedded links as typed blocks", () => {
+    const markdown = "![Diagram](https://cdn.example.com/diagram.png)\n\n![Stored](custom-asset://image-one)\n\n@[embed](https://example.com/article)";
     const document = importMarkdownDocument(markdown, { createID: ids() });
 
-    expect(document.blocks[0]).toMatchObject({ kind: "image", assetID, alt: "Diagram" });
-    expect(document.blocks[1]).toMatchObject({ kind: "embed", url: "https://example.com/article" });
+    expect(document.blocks[0]).toMatchObject({
+      kind: "image",
+      url: "https://cdn.example.com/diagram.png",
+      alt: "Diagram",
+    });
+    expect(document.blocks[1]).toMatchObject({ kind: "image", url: "custom-asset://image-one", alt: "Stored" });
+    expect(document.blocks[2]).toMatchObject({ kind: "embed", url: "https://example.com/article" });
     expect(document.markdown).toBe(markdown);
   });
 });

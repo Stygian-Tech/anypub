@@ -8,6 +8,7 @@ node_modules/
 .next/
 coverage/
 *.tsbuildinfo
+packages/block-editor/dist/
 
 .build/
 .swiftpm/

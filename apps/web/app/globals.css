@@ -1,8 +1,5 @@
 @import "tailwindcss";
-@import "@anypub/block-editor/styles";
-
-/* The editor is a workspace package, outside Tailwind's automatic app scan. */
-@source "../../../packages/block-editor/src";
+@import "@stygian/markdown-editor/styles";
 
 @theme inline {
   --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;

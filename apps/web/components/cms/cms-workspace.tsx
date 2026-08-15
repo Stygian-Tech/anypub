@@ -22,6 +22,7 @@ import { RightPanel } from "@/components/cms/right-panel";
 import { PublicationsDashboard } from "@/components/cms/publications-dashboard";
 import { WorkspaceHeader } from "@/components/cms/workspace-header";
 import { FeedbackSection } from "@/components/cms/feedback-section";
+import { MobileWorkspaceFooter } from "@/components/cms/mobile-workspace-footer";
 import { ColumnResizeHandle, useWorkspaceLayout } from "@/components/cms/workspace-layout";
 import { useAppearancePreferences } from "@/components/cms/use-appearance-preferences";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
@@ -41,17 +42,35 @@ import {
 import { loadAccounts, unlinkAccount } from "@/lib/oauth-api";
 import type { Draft, LinkedAccount, Publication } from "@/lib/types";
 import { markdownToPlaintext, validateDraft } from "@/lib/validation";
+import {
+  defaultWorkspaceNavigation,
+  parseWorkspaceNavigation,
+  workspaceNavigationURL,
+  type MobileWorkspacePane,
+  type WorkspaceNavigationState,
+  type WorkspaceView,
+} from "@/lib/workspace-navigation";
+
+function initialWorkspaceNavigation() {
+  return typeof window === "undefined"
+    ? defaultWorkspaceNavigation
+    : parseWorkspaceNavigation(window.location.search);
+}
 
 export function CmsWorkspace() {
   const router = useRouter();
+  const [initialNavigation] = React.useState(initialWorkspaceNavigation);
   const [accounts, setAccounts] = React.useState<LinkedAccount[]>([]);
   const [accountLoadState, setAccountLoadState] = React.useState<"loading" | "ready" | "error">("loading");
   const [publications, setPublications] = React.useState<Publication[]>([]);
   const [drafts, setDrafts] = React.useState<Draft[]>([]);
-  const [activeView, setActiveView] = React.useState<"posts" | "publications" | "feedback">("posts");
+  const [activeView, setActiveView] = React.useState<WorkspaceView>(initialNavigation.view);
   const activeAccount = accounts[0];
   const activeAccountDID = activeAccount?.did ?? "";
-  const [selectedDraftID, setSelectedDraftID] = React.useState("");
+  const [selectedDraftID, setSelectedDraftID] = React.useState(initialNavigation.draftID);
+  const [mobilePane, setMobilePane] = React.useState<MobileWorkspacePane>(initialNavigation.pane);
+  const requestedDraftID = React.useRef(initialNavigation.draftID);
+  const [draftsLoadedForAccount, setDraftsLoadedForAccount] = React.useState("");
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [draftSaveStates, setDraftSaveStates] = React.useState<Record<string, DraftSaveState>>({});
   const [isPublishing, setIsPublishing] = React.useState(false);
@@ -81,6 +100,32 @@ export function CmsWorkspace() {
     changeSmallText,
   } = useAppearancePreferences();
   const { columnLayout, bounds: columnLayoutBounds, resizeColumn, beginColumnResize } = useWorkspaceLayout();
+
+  const navigateWorkspace = React.useCallback((
+    next: WorkspaceNavigationState,
+    mode: "push" | "replace" = "push",
+  ) => {
+    setActiveView(next.view);
+    setMobilePane(next.pane);
+    requestedDraftID.current = next.draftID;
+    if (next.draftID) setSelectedDraftID(next.draftID);
+    if (typeof window !== "undefined") {
+      window.history[mode === "push" ? "pushState" : "replaceState"]({}, "", workspaceNavigationURL(next));
+    }
+  }, []);
+
+  React.useEffect(() => {
+    function restoreWorkspaceNavigation() {
+      const next = parseWorkspaceNavigation(window.location.search);
+      setActiveView(next.view);
+      setMobilePane(next.pane);
+      requestedDraftID.current = next.draftID;
+      setSelectedDraftID(next.draftID);
+    }
+
+    window.addEventListener("popstate", restoreWorkspaceNavigation);
+    return () => window.removeEventListener("popstate", restoreWorkspaceNavigation);
+  }, []);
 
   const requestAccounts = React.useCallback((signal: AbortSignal) => {
     loadAccounts(signal)
@@ -129,17 +174,18 @@ export function CmsWorkspace() {
   React.useEffect(() => {
     if (!activeAccountDID) return;
     const controller = new AbortController();
-
     draftAPI.loadDrafts(activeAccountDID, controller.signal)
       .then((persistedDrafts) => {
         setDrafts(persistedDrafts);
         editVersions.current = new Map(persistedDrafts.map((draft) => [draft.id, 0]));
         setDraftSaveStates(Object.fromEntries(persistedDrafts.map((draft) => [draft.id, "saved"])));
-        setSelectedDraftID((current) =>
-          persistedDrafts.some((draft) => draft.id === current)
-            ? current
-            : persistedDrafts[0]?.id ?? "",
-        );
+        const requestedID = requestedDraftID.current;
+        const validRequestedID = persistedDrafts.some((draft) => draft.id === requestedID) ? requestedID : "";
+        setSelectedDraftID(validRequestedID || persistedDrafts[0]?.id || "");
+        if (requestedID && !validRequestedID) {
+          navigateWorkspace(defaultWorkspaceNavigation, "replace");
+        }
+        setDraftsLoadedForAccount(activeAccountDID);
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -149,7 +195,13 @@ export function CmsWorkspace() {
       });
 
     return () => controller.abort();
-  }, [activeAccountDID]);
+  }, [activeAccountDID, navigateWorkspace]);
+
+  React.useEffect(() => {
+    if (draftsLoadedForAccount !== activeAccountDID || activeView !== "posts" || !requestedDraftID.current) return;
+    if (drafts.some((draft) => draft.id === requestedDraftID.current)) return;
+    navigateWorkspace(defaultWorkspaceNavigation, "replace");
+  }, [activeAccountDID, activeView, drafts, draftsLoadedForAccount, navigateWorkspace]);
 
   React.useEffect(() => {
     if (!activeAccountDID) return;
@@ -194,8 +246,9 @@ export function CmsWorkspace() {
   }, [activeAccountDID, draftListTab, drafts, search]);
 
   const activeDraft = React.useMemo(() => {
-    return visibleDrafts.find((draft) => draft.id === selectedDraftID) ?? visibleDrafts[0];
-  }, [selectedDraftID, visibleDrafts]);
+    const accountDrafts = drafts.filter((draft) => draft.accountDID === activeAccountDID);
+    return accountDrafts.find((draft) => draft.id === selectedDraftID) ?? accountDrafts[0];
+  }, [activeAccountDID, drafts, selectedDraftID]);
 
   const selectedPublication = activeDraft
     ? publications.find((publication) => publication.uri === activeDraft.publicationURI)
@@ -209,6 +262,23 @@ export function CmsWorkspace() {
   }, [activeDraft]);
 
   const calendarItems = React.useMemo(() => calendarItemsFromDrafts(drafts), [drafts]);
+
+  function changeView(view: WorkspaceView) {
+    navigateWorkspace({ view, draftID: "", pane: "list" });
+  }
+
+  function selectDraft(id: string) {
+    navigateWorkspace({ view: "posts", draftID: id, pane: "write" });
+  }
+
+  function changeMobilePane(pane: Exclude<MobileWorkspacePane, "list">) {
+    if (!activeDraft) return;
+    navigateWorkspace({ view: "posts", draftID: activeDraft.id, pane }, "replace");
+  }
+
+  function backToPosts() {
+    navigateWorkspace(defaultWorkspaceNavigation, "replace");
+  }
 
   function setDraftSaveState(draftID: string, state: DraftSaveState) {
     setDraftSaveStates((current) => ({ ...current, [draftID]: state }));
@@ -315,7 +385,7 @@ export function CmsWorkspace() {
       setDraftSaveState(persisted.id, "saved");
       setSearch("");
       setDraftListTab("drafts");
-      setSelectedDraftID(persisted.id);
+      selectDraft(persisted.id);
       return true;
     } catch {
       toast.error("Could not create draft");
@@ -385,7 +455,7 @@ export function CmsWorkspace() {
       replaceDraft(persisted);
       setRevertDraftToConfirm(null);
       setDraftListTab("drafts");
-      setSelectedDraftID(persisted.id);
+      selectDraft(persisted.id);
       toast.success("Post reverted to draft");
     } catch {
       toast.error("Could not revert post");
@@ -404,6 +474,9 @@ export function CmsWorkspace() {
       clearAutosave(deleteDraftToConfirm.id);
       editVersions.current.delete(deleteDraftToConfirm.id);
       setDrafts((current) => current.filter((draft) => draft.id !== deleteDraftToConfirm.id));
+      if (deleteDraftToConfirm.id === selectedDraftID) {
+        navigateWorkspace(defaultWorkspaceNavigation, "replace");
+      }
       setDeleteDraftToConfirm(null);
       toast.success("Post deleted");
     } catch {
@@ -423,7 +496,7 @@ export function CmsWorkspace() {
       replaceDraft(persisted);
       setUnpublishDraftToConfirm(null);
       setDraftListTab("drafts");
-      setSelectedDraftID(persisted.id);
+      selectDraft(persisted.id);
       toast.success("Article unpublished and returned to drafts");
     } catch (error) {
       toast.error(errorMessage(error, "Could not unpublish article"));
@@ -536,7 +609,13 @@ export function CmsWorkspace() {
         <main className="flex min-w-0 flex-1 flex-col">
           <WorkspaceHeader
             activeView={activeView}
+            mobilePane={mobilePane}
+            activeDraftTitle={activeDraft?.title}
+            account={activeAccount}
             theme={themePreference}
+            fontPreference={fontPreference}
+            boldText={boldText}
+            smallText={smallText}
             publications={accountPublications}
             isSyncing={isSyncing}
             canPublish={Boolean(activeDraft && validation.valid && !isPublishing)}
@@ -544,11 +623,16 @@ export function CmsWorkspace() {
             isUpdating={activeDraft?.status === "published"}
             isLoggingOut={isLoggingOut}
             onThemeChange={changeThemePreference}
+            onFontPreferenceChange={changeFontPreference}
+            onBoldTextChange={changeBoldText}
+            onSmallTextChange={changeSmallText}
             onSync={syncPublications}
             onCreateDraft={createDraft}
             onPublish={publishDraft}
             onLogOut={logOut}
-            onViewChange={setActiveView}
+            onViewChange={changeView}
+            onMobilePaneChange={changeMobilePane}
+            onBackToPosts={backToPosts}
           />
 
           {activeView === "publications" ? (
@@ -578,12 +662,13 @@ export function CmsWorkspace() {
               onSmallTextChange={changeSmallText}
               onFontPreferenceChange={changeFontPreference}
               onSearch={setSearch}
-              onSelectDraft={setSelectedDraftID}
+              onSelectDraft={selectDraft}
               onChangePublication={setPublicationDraft}
               onEditSchedule={beginScheduleEdit}
               onDelete={setDeleteDraftToConfirm}
               onRevert={setRevertDraftToConfirm}
               onUnpublish={setUnpublishDraftToConfirm}
+              mobileVisible={mobilePane === "list"}
             />
             <ColumnResizeHandle
               className="hidden xl:flex"
@@ -601,9 +686,10 @@ export function CmsWorkspace() {
                 onChange={updateDraft}
                 onSave={saveDraft}
                 saveState={draftSaveStates[activeDraft.id] ?? "saved"}
+                mobileVisible={mobilePane === "write"}
               />
             ) : (
-              <Empty className="m-4">
+              <Empty className="m-4 hidden xl:flex">
                 <EmptyTitle>{accountPublications.length === 0 ? "No publications found" : "No draft selected"}</EmptyTitle>
                 <EmptyDescription>
                   {accountPublications.length === 0
@@ -629,9 +715,22 @@ export function CmsWorkspace() {
               onScheduledDate={setScheduledDate}
               onSchedule={scheduleDraft}
               onDraftChange={updateDraft}
+              mobileVisible={mobilePane === "details" || mobilePane === "schedule"}
+              mobilePane={mobilePane === "schedule" ? "schedule" : "details"}
             />
           </div>
           )}
+          <MobileWorkspaceFooter
+            activeView={activeView}
+            editing={activeView === "posts" && mobilePane !== "list" && Boolean(activeDraft)}
+            saveState={activeDraft ? draftSaveStates[activeDraft.id] ?? "saved" : "saved"}
+            canPublish={Boolean(activeDraft && validation.valid && !isPublishing)}
+            isPublishing={isPublishing}
+            isUpdating={activeDraft?.status === "published"}
+            onViewChange={changeView}
+            onSave={saveDraft}
+            onPublish={publishDraft}
+          />
         </main>
         <ChangePublicationDialog
           draft={publicationDraft}

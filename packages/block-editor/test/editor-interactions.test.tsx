@@ -1,21 +1,16 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
-import { MarkdownBlockEditor, type BlockEditorHandle } from "@anypub/block-editor";
+import { describe, expect, it, vi } from "vitest";
+import { MarkdownBlockEditor, type BlockEditorHandle } from "../src";
 
-describe("block editor list interactions", () => {
+describe("Markdown block editor interactions", () => {
   it("backs an empty top-level bullet out into a text block", () => {
     const onChange = vi.fn();
     render(
-      <MarkdownBlockEditor
-        value={"# Heading\n\n- "}
-        invalid={false}
-        onChange={onChange}
-      />,
+      <MarkdownBlockEditor value={"# Heading\n\n- "} onChange={onChange} />,
     );
 
-    const previews = screen.getAllByTestId("markdown-block-preview");
-    fireEvent.click(previews[1]!);
+    fireEvent.click(screen.getAllByTestId("markdown-block-preview")[1]!);
     const editor = screen.getByTestId("markdown-block-textarea");
     expect(editor).toHaveValue("-");
 
@@ -30,7 +25,6 @@ describe("block editor list interactions", () => {
     render(
       <MarkdownBlockEditor
         value={"```typescript\nconst answer = 42;\n```"}
-        invalid={false}
         onChange={() => undefined}
       />,
     );
@@ -44,13 +38,7 @@ describe("block editor list interactions", () => {
 
   it("turns a pasted standalone URL into a link whose text is the URL", () => {
     const onChange = vi.fn();
-    render(
-      <MarkdownBlockEditor
-        value={"Paste here"}
-        invalid={false}
-        onChange={onChange}
-      />,
-    );
+    render(<MarkdownBlockEditor value="Paste here" onChange={onChange} />);
     fireEvent.click(screen.getByTestId("markdown-block-preview"));
     const editor = screen.getByTestId("markdown-block-textarea") as HTMLTextAreaElement;
     editor.setSelectionRange(editor.value.length, editor.value.length);
@@ -62,12 +50,11 @@ describe("block editor list interactions", () => {
     expect(onChange).toHaveBeenLastCalledWith("Paste here[https://example.com/article](https://example.com/article)");
   });
 
-  it("sends pasted images to the body image handler after the active block", () => {
+  it("sends pasted images to the consumer handler after the active block", () => {
     const onImageFiles = vi.fn();
     render(
       <MarkdownBlockEditor
         value={"First\n\nSecond"}
-        invalid={false}
         onChange={() => undefined}
         onImageFiles={onImageFiles}
       />,
@@ -87,7 +74,6 @@ describe("block editor list interactions", () => {
     render(
       <MarkdownBlockEditor
         value={"First\n\nSecond"}
-        invalid={false}
         onChange={() => undefined}
         onImageFiles={onImageFiles}
       />,
@@ -105,24 +91,36 @@ describe("block editor list interactions", () => {
     expect(screen.queryByTestId("markdown-image-drop-overlay")).not.toBeInTheDocument();
   });
 
-  it("inserts an uploaded image at an explicit body position so its preview can render", () => {
+  it("inserts a custom image at an explicit position and resolves its preview URL", () => {
     const onChange = vi.fn();
     const ref = createRef<BlockEditorHandle>();
     render(
       <MarkdownBlockEditor
         ref={ref}
         value={"First\n\nSecond"}
-        invalid={false}
         onChange={onChange}
-        resolveAssetURL={(assetID) => `/api/assets/${assetID}/content`}
+        resolveImageURL={(url) => url === "custom-asset://preview" ? "/api/assets/preview/content" : undefined}
       />,
     );
 
-    act(() => ref.current?.insertBlock("![Preview](anypub-asset://d9428888-122b-11e1-b85c-61cd3cbb3210)", 1));
-    expect(onChange).toHaveBeenLastCalledWith("First\n\n![Preview](anypub-asset://d9428888-122b-11e1-b85c-61cd3cbb3210)\n\nSecond");
+    act(() => ref.current?.insertBlock("![Preview](custom-asset://preview)", 1));
+    expect(onChange).toHaveBeenLastCalledWith(
+      "First\n\n![Preview](custom-asset://preview)\n\nSecond",
+    );
     expect(screen.getByRole("img", { name: "Preview" })).toHaveAttribute(
       "src",
-      "/api/assets/d9428888-122b-11e1-b85c-61cd3cbb3210/content",
+      "/api/assets/preview/content",
     );
+  });
+
+  it("exposes touch-friendly move up and down alternatives", () => {
+    const onChange = vi.fn();
+    render(<MarkdownBlockEditor value={"First\n\nSecond"} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Move block 1" }));
+    expect(screen.getByRole("button", { name: "Move block 1 up" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Move block 1 down" }));
+
+    expect(onChange).toHaveBeenLastCalledWith("Second\n\nFirst");
   });
 });

@@ -27,7 +27,7 @@ export type MarkdownBlock =
   | (BaseMarkdownBlock & { kind: "unordered-list"; listLevel: number })
   | (BaseMarkdownBlock & { kind: "ordered-list"; listLevel: number; listStart: number })
   | (BaseMarkdownBlock & { kind: "code"; language?: string })
-  | (BaseMarkdownBlock & { kind: "image"; alt: string; assetID: string })
+  | (BaseMarkdownBlock & { kind: "image"; alt: string; url: string })
   | (BaseMarkdownBlock & { kind: "embed"; url: string })
   | (BaseMarkdownBlock & { kind: "paragraph" });
 
@@ -104,9 +104,9 @@ export function parseMarkdownBlock(source: string): MarkdownBlock {
     return { kind: "code", source: rawSource, language: code[1] || undefined };
   }
 
-  const image = trimmed.match(/^!\[([^\]]*)\]\(anypub-asset:\/\/([0-9a-f-]+)\)$/i);
+  const image = trimmed.match(/^!\[([^\]]*)\]\((\S+)\)$/);
   if (image) {
-    return { kind: "image", source: rawSource, alt: image[1] ?? "", assetID: image[2] ?? "" };
+    return { kind: "image", source: rawSource, alt: image[1] ?? "", url: image[2] ?? "" };
   }
 
   const embed = trimmed.match(/^@\[embed\]\((https?:\/\/[^\s)]+)\)$/i);

@@ -1,3 +1,3 @@
-export * from "./model";
-export * from "./react/markdown-block-editor";
-export * from "./react/block-renderer";
+export * from "./model/index.js";
+export * from "./react/markdown-block-editor.js";
+export * from "./react/block-renderer.js";

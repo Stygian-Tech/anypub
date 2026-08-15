@@ -1,16 +1,26 @@
 "use client";
 
 import * as React from "react";
-import { BlockEditor, importMarkdownDocument, parseBlockDocument, type BlockDocument, type BlockEditorHandle } from "@anypub/block-editor";
-import { ImagePlusIcon, LinkIcon, SaveIcon } from "lucide-react";
+import {
+  BlockEditor,
+  importMarkdownDocument,
+  parseBlockDocument,
+  type BlockDocument,
+  type BlockEditorHandle,
+} from "@stygian/markdown-editor";
+import { ImagePlusIcon, LinkIcon, PlusIcon, SaveIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { assetContentURL, uploadImage } from "@/lib/asset-api";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { saveStateLabel } from "@/components/cms/mobile-workspace-footer";
+import { uploadImage } from "@/lib/asset-api";
 import type { DraftSaveState } from "@/lib/draft-editor";
+import { markdownForAnyPubImage, resolveAnyPubImageURL } from "@/lib/editor-images";
 import type { Draft, DraftStatus } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const statusVariant: Record<DraftStatus, "default" | "secondary" | "accent" | "outline" | "destructive"> = {
   draft: "outline",
@@ -37,25 +47,22 @@ export function EditorPanel({
   onChange,
   onSave,
   saveState,
+  mobileVisible = false,
 }: {
   draft: Draft;
   validation: Record<string, string>;
   onChange: (patch: Partial<Draft>) => void;
   onSave: () => Promise<void>;
   saveState: DraftSaveState;
+  mobileVisible?: boolean;
 }) {
   const editorRef = React.useRef<BlockEditorHandle>(null);
   const bodyImageInputRef = React.useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = React.useState(false);
   const [showLinkComposer, setShowLinkComposer] = React.useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = React.useState(false);
   const [linkURL, setLinkURL] = React.useState("");
   const isSaving = saveState === "saving";
-  const saveStateLabel = {
-    saved: "Saved",
-    unsaved: "Unsaved changes",
-    saving: "Saving…",
-    error: "Autosave failed",
-  }[saveState];
 
   async function uploadBodyImages(files: File[], insertionIndex?: number) {
     if (files.length === 0) return;
@@ -65,7 +72,7 @@ export function EditorPanel({
         const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
         const asset = await uploadImage(draft.accountDID, file, alt);
         editorRef.current?.insertBlock(
-          `![${alt}](anypub-asset://${asset.id})`,
+          markdownForAnyPubImage(asset.id, alt),
           insertionIndex === undefined ? undefined : insertionIndex + offset,
         );
       }
@@ -87,24 +94,25 @@ export function EditorPanel({
     editorRef.current?.insertBlock(mode === "embed" ? `@[embed](${url})` : `[${url}](${url})`);
     setLinkURL("");
     setShowLinkComposer(false);
+    setMobileToolsOpen(false);
   }
 
   return (
-    <section className="flex min-h-0 flex-col">
-      <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+    <section className={cn("min-h-0 flex-col", mobileVisible ? "flex" : "hidden", "xl:flex")}>
+      <input
+        ref={bodyImageInputRef}
+        className="sr-only"
+        type="file"
+        accept="image/*"
+        aria-label="Choose an image for the article body"
+        onChange={(event) => void uploadBodyImages(Array.from(event.target.files ?? []))}
+      />
+      <div className="hidden h-14 shrink-0 items-center justify-between border-b px-4 xl:flex">
         <div className="flex items-center gap-2">
           <Badge variant={statusVariant[draft.status]}>{draft.status}</Badge>
           <span className="text-muted-foreground text-xs">{draft.path}</span>
         </div>
         <div className="flex items-center gap-3">
-          <input
-            ref={bodyImageInputRef}
-            className="sr-only"
-            type="file"
-            accept="image/*"
-            aria-label="Choose an image for the article body"
-            onChange={(event) => void uploadBodyImages(Array.from(event.target.files ?? []))}
-          />
           <Button variant="outline" size="sm" disabled={uploadingImage} onClick={() => bodyImageInputRef.current?.click()}>
             <ImagePlusIcon data-icon="inline-start" />
             {uploadingImage ? "Uploading…" : "Image"}
@@ -118,7 +126,7 @@ export function EditorPanel({
             role="status"
             aria-live="polite"
           >
-            {saveStateLabel}
+            {saveStateLabel(saveState)}
           </span>
           <Button size="sm" onClick={onSave} disabled={isSaving}>
             <SaveIcon data-icon="inline-start" />
@@ -126,8 +134,54 @@ export function EditorPanel({
           </Button>
         </div>
       </div>
+      <div className="flex min-h-12 shrink-0 items-center justify-between gap-3 border-b px-3 xl:hidden">
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge variant={statusVariant[draft.status]}>{draft.status}</Badge>
+          <span className="text-muted-foreground truncate text-xs">{draft.path}</span>
+        </div>
+        <Sheet open={mobileToolsOpen} onOpenChange={setMobileToolsOpen}>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="sm">
+              <PlusIcon data-icon="inline-start" />
+              Add
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="bottom" className="grid gap-4 p-4">
+            <SheetHeader className="p-0 pr-12">
+              <SheetTitle>Add content</SheetTitle>
+              <SheetDescription>Add an image, link, or embedded URL to the article body.</SheetDescription>
+            </SheetHeader>
+            <Button
+              variant="outline"
+              className="justify-start"
+              disabled={uploadingImage}
+              onClick={() => bodyImageInputRef.current?.click()}
+            >
+              <ImagePlusIcon data-icon="inline-start" />
+              {uploadingImage ? "Uploading…" : "Choose image"}
+            </Button>
+            <Field>
+              <FieldLabel htmlFor="mobile-link-url">Link URL</FieldLabel>
+              <Input
+                id="mobile-link-url"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                placeholder="https://example.com"
+                value={linkURL}
+                onChange={(event) => setLinkURL(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && insertLink("link")}
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Button onClick={() => insertLink("link")}>Add link</Button>
+              <Button variant="secondary" onClick={() => insertLink("embed")}>Embed</Button>
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
       {showLinkComposer ? (
-        <div className="flex shrink-0 items-center gap-2 border-b bg-muted/30 px-4 py-3">
+        <div className="hidden shrink-0 items-center gap-2 border-b bg-muted/30 px-4 py-3 xl:flex">
           <Input
             autoFocus
             aria-label="Link URL"
@@ -159,7 +213,7 @@ export function EditorPanel({
             key={draft.id}
             document={blockDocumentForDraft(draft)}
             invalid={Boolean(validation.markdown)}
-            resolveAssetURL={assetContentURL}
+            resolveImageURL={resolveAnyPubImageURL}
             onImageFiles={uploadBodyImages}
             onChange={(document) => onChange({
               markdown: document.markdown,

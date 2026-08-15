@@ -44,10 +44,12 @@ export function OAuthConnectScreen({
   }
 
   return (
-    <main className="flex min-h-0 flex-1 items-center justify-center bg-muted/30 p-6">
+    <main className="flex min-h-0 flex-1 items-start justify-center bg-muted/30 px-4 pt-24 pb-6 sm:px-6 sm:pt-28 xl:items-center xl:py-6">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Connect your publication account</CardTitle>
+          <CardTitle>
+            <h1 className="text-xl leading-tight">Connect your publication account</h1>
+          </CardTitle>
           <CardDescription>
             AnyPub uses AT Protocol OAuth to discover your publications and publish with your approval.
           </CardDescription>

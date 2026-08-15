@@ -20,35 +20,49 @@ import {
   type MarkdownBlock,
   type BlockDocument,
   reviseMarkdownDocument,
-} from "../model";
-import { cn } from "../utils";
-import { Field, FieldDescription } from "./primitives";
-import { MarkdownBlockPreview, MarkdownListEditingMarker } from "./block-renderer";
-import { caretOffsetFromPreviewClick, InlineMarkdownBlockTextarea } from "./inline-block-input";
+} from "../model/index.js";
+import { cn } from "../utils.js";
+import { Field, FieldDescription } from "./primitives.js";
+import {
+  MarkdownBlockPreview,
+  MarkdownListEditingMarker,
+  type ImageURLResolver,
+} from "./block-renderer.js";
+import { caretOffsetFromPreviewClick, InlineMarkdownBlockTextarea } from "./inline-block-input.js";
 import {
   BlockDragHandle,
   BlockDropIndicator,
   markdownBlockEditorPrefix,
   reindexAfterMove,
-} from "./block-drag";
+} from "./block-drag.js";
 
 export type BlockEditorHandle = {
   insertBlock: (markdown: string, atIndex?: number) => void;
 };
 
-type ImageFilesHandler = (files: File[], insertionIndex: number) => void | Promise<void>;
+export type ImageFilesHandler = (files: File[], insertionIndex: number) => void | Promise<void>;
 
-export const BlockEditor = React.forwardRef<BlockEditorHandle, {
+export type BlockEditorProps = {
   document: BlockDocument;
   invalid?: boolean;
   onChange: (document: BlockDocument) => void;
-  resolveAssetURL?: (assetID: string) => string;
+  resolveImageURL?: ImageURLResolver;
   onImageFiles?: ImageFilesHandler;
-}>(function BlockEditor({
+};
+
+export type MarkdownBlockEditorProps = {
+  value: string;
+  invalid?: boolean;
+  onChange: (markdown: string) => void;
+  resolveImageURL?: ImageURLResolver;
+  onImageFiles?: ImageFilesHandler;
+};
+
+export const BlockEditor = React.forwardRef<BlockEditorHandle, BlockEditorProps>(function BlockEditor({
   document,
   invalid = false,
   onChange,
-  resolveAssetURL,
+  resolveImageURL,
   onImageFiles,
 }, ref) {
   return (
@@ -56,24 +70,18 @@ export const BlockEditor = React.forwardRef<BlockEditorHandle, {
       ref={ref}
       value={document.markdown}
       invalid={invalid}
-      resolveAssetURL={resolveAssetURL}
+      resolveImageURL={resolveImageURL}
       onImageFiles={onImageFiles}
       onChange={(markdown) => onChange(reviseMarkdownDocument(document, markdown))}
     />
   );
 });
 
-export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
-  value: string;
-  invalid: boolean;
-  onChange: (markdown: string) => void;
-  resolveAssetURL?: (assetID: string) => string;
-  onImageFiles?: ImageFilesHandler;
-}>(function MarkdownBlockEditor({
+export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, MarkdownBlockEditorProps>(function MarkdownBlockEditor({
   value,
-  invalid,
+  invalid = false,
   onChange,
-  resolveAssetURL,
+  resolveImageURL,
   onImageFiles,
 }, ref) {
   const [blocks, setBlocks] = React.useState(() => parseMarkdownBlocks(value));
@@ -232,9 +240,11 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
 
     const ownerDocument = event.currentTarget.ownerDocument;
     const dragHandle = event.currentTarget;
+    dragHandle.dataset.dragMoved = "false";
     const editor = dragHandle.closest<HTMLElement>("[data-testid='markdown-block-editor']");
 
-    function updateDragTarget(pointerEvent: PointerEvent) {
+    function updateDragTarget(pointerEvent: PointerEvent, markMoved = true) {
+      if (markMoved) dragHandle.dataset.dragMoved = "true";
       if (!editor) {
         return;
       }
@@ -253,7 +263,7 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
     }
 
     function finishDragging(pointerEvent: PointerEvent) {
-      updateDragTarget(pointerEvent);
+      updateDragTarget(pointerEvent, false);
       const dragState = dragStateRef.current;
       if (dragState?.insertionIndex !== null && dragState?.insertionIndex !== undefined) {
         moveBlockToInsertion(dragState.fromIndex, dragState.insertionIndex, dragState.targetListLevel);
@@ -516,7 +526,7 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
                 >
                   {block.kind === "code" ? (
                     <div className="pointer-events-none w-full" aria-hidden="true">
-                      <MarkdownBlockPreview block={block} resolveAssetURL={resolveAssetURL} />
+                      <MarkdownBlockPreview block={block} resolveImageURL={resolveImageURL} />
                     </div>
                   ) : isListItem ? (
                     <MarkdownListEditingMarker block={block} orderedListOrdinal={orderedListOrdinal} />
@@ -619,7 +629,7 @@ export const MarkdownBlockEditor = React.forwardRef<BlockEditorHandle, {
                         block={block}
                         orderedListOrdinal={orderedListOrdinal}
                         onToggleTask={(lineIndex) => toggleTaskItem(index, lineIndex)}
-                        resolveAssetURL={resolveAssetURL}
+                        resolveImageURL={resolveImageURL}
                       />
                 </button>
               )}

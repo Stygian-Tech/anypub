@@ -14,6 +14,7 @@ vi.mock("next/navigation", () => ({
 
 beforeEach(() => {
   navigation.replace.mockReset();
+  window.history.replaceState({}, "", "/editor");
   const values = new Map<string, string>();
   Object.defineProperty(window, "localStorage", {
     configurable: true,
@@ -39,6 +40,56 @@ afterEach(() => {
 });
 
 describe("publication discovery UI", () => {
+  it("returns an invalid draft URL safely to the post library", async () => {
+    const account = {
+      id: "account-id",
+      did: "did:plc:writer",
+      handle: "writer.example",
+      pdsURL: "https://pds.example",
+      scope: "atproto",
+      linkedAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const publication = {
+      id: "publication-id",
+      accountDID: account.did,
+      uri: `at://${account.did}/site.standard.publication/blog`,
+      name: "Writer Blog",
+      url: "https://writer.example",
+      syncedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const draft: Draft = {
+      id: "existing-draft",
+      accountDID: account.did,
+      publicationURI: publication.uri,
+      publicationURL: publication.url,
+      title: "Existing draft",
+      path: "/existing-draft",
+      tags: [],
+      markdown: "Body",
+      plaintext: "Body",
+      status: "draft",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith("/api/accounts")
+        ? [account]
+        : url.includes("/api/drafts")
+          ? [draft]
+          : [publication];
+      return Response.json(body);
+    }));
+    window.history.replaceState({}, "", "/editor?draft=deleted-draft&pane=schedule");
+
+    render(<CmsWorkspace />);
+
+    expect(await screen.findByText("Existing draft")).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe("/editor"));
+    expect(screen.queryByRole("button", { name: "Back to posts" })).not.toBeInTheDocument();
+  });
+
   it("treats an unauthenticated account response as a signed-out session", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
       JSON.stringify({ error: true, reason: "Sign in to continue" }),

@@ -2,16 +2,20 @@
 
 import * as React from "react";
 import { SquareCheckIcon, SquareIcon } from "lucide-react";
-import { orderedListOrdinalAt, type BlockDocument, type MarkdownBlock } from "../model";
-import { cn } from "../utils";
-import { SyntaxHighlightedCode } from "./syntax-highlighted-code";
+import { orderedListOrdinalAt, type BlockDocument, type MarkdownBlock } from "../model/index.js";
+import { cn } from "../utils.js";
+import { SyntaxHighlightedCode } from "./syntax-highlighted-code.js";
+
+export type ImageURLResolver = (url: string) => string | undefined;
 
 export function BlockDocumentRenderer({
   document,
   className,
+  resolveImageURL,
 }: {
   document: BlockDocument;
   className?: string;
+  resolveImageURL?: ImageURLResolver;
 }) {
   return (
     <div className={cn("typeset typeset-block-editor", className)}>
@@ -21,6 +25,7 @@ export function BlockDocumentRenderer({
           block={block}
           orderedListOrdinal={block.kind === "ordered-list" ? orderedListOrdinalAt(document.blocks, index) : undefined}
           onToggleTask={() => undefined}
+          resolveImageURL={resolveImageURL}
         />
       ))}
     </div>
@@ -31,12 +36,12 @@ export function MarkdownBlockPreview({
   block,
   orderedListOrdinal,
   onToggleTask,
-  resolveAssetURL,
+  resolveImageURL,
 }: {
   block: MarkdownBlock;
   orderedListOrdinal?: number;
   onToggleTask?: (itemIndex: number) => void;
-  resolveAssetURL?: (assetID: string) => string;
+  resolveImageURL?: ImageURLResolver;
 }) {
   const trimmed = block.source.trim();
 
@@ -50,14 +55,14 @@ export function MarkdownBlockPreview({
   }
 
   if (block.kind === "image") {
-    const src = resolveAssetURL?.(block.assetID);
+    const src = resolveImageURL?.(block.url) ?? safeImageURL(block.url);
     return src ? (
       <figure className="overflow-hidden rounded-md border bg-muted/30">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt={block.alt} className="max-h-[34rem] w-full object-contain" />
         {block.alt ? <figcaption className="text-muted-foreground px-3 py-2 text-xs">{block.alt}</figcaption> : null}
       </figure>
-    ) : <span className="text-muted-foreground italic">Image: {block.alt || block.assetID}</span>;
+    ) : <span className="text-muted-foreground italic">Image: {block.alt || block.url}</span>;
   }
 
   if (block.kind === "embed") {
@@ -294,4 +299,9 @@ function safeMarkdownHref(href: string) {
     return trimmed;
   }
   return "";
+}
+
+function safeImageURL(url: string) {
+  const trimmed = url.trim();
+  return /^(https?:|blob:|data:image\/)/i.test(trimmed) ? trimmed : undefined;
 }

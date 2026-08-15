@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { BookOpenIcon, CalendarClockIcon, CloudOffIcon, PencilIcon, SearchIcon, Trash2Icon, Undo2Icon } from "lucide-react";
+import { BookOpenIcon, CalendarClockIcon, CloudOffIcon, EllipsisVerticalIcon, PencilIcon, SearchIcon, Trash2Icon, Undo2Icon } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PublicationIcon } from "@/components/cms/publication-icon";
@@ -58,6 +60,7 @@ export function DraftList({
   onDelete,
   onRevert,
   onUnpublish,
+  mobileVisible = false,
 }: {
   drafts: Draft[];
   publications: Publication[];
@@ -81,6 +84,7 @@ export function DraftList({
   onDelete: (draft: Draft) => void;
   onRevert: (draft: Draft) => void;
   onUnpublish: (draft: Draft) => void;
+  mobileVisible?: boolean;
 }) {
   const publicationByURI = new Map(publications.map((publication) => [publication.uri, publication]));
   const publicationGroups = publications
@@ -92,7 +96,7 @@ export function DraftList({
     .sort((left, right) => draftActivityTimestamp(right.drafts[0]!) - draftActivityTimestamp(left.drafts[0]!));
 
   return (
-    <section className="hidden min-h-0 border-r xl:flex xl:flex-col">
+    <section className={cn("min-h-0 flex-col border-r", mobileVisible ? "flex" : "hidden", "xl:flex")}>
       <div className="flex shrink-0 flex-col gap-2 border-b p-2">
         <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as DraftListTab)}>
           <TabsList className={sideTabsListClassName}>
@@ -181,15 +185,17 @@ export function DraftList({
           </Empty>
         )}
       </div>
-      <UserAppearanceCard
-        account={account}
-        fontPreference={fontPreference}
-        boldText={boldText}
-        smallText={smallText}
-        onFontPreferenceChange={onFontPreferenceChange}
-        onBoldTextChange={onBoldTextChange}
-        onSmallTextChange={onSmallTextChange}
-      />
+      <div className="hidden xl:block">
+        <UserAppearanceCard
+          account={account}
+          fontPreference={fontPreference}
+          boldText={boldText}
+          smallText={smallText}
+          onFontPreferenceChange={onFontPreferenceChange}
+          onBoldTextChange={onBoldTextChange}
+          onSmallTextChange={onSmallTextChange}
+        />
+      </div>
     </section>
   );
 }
@@ -218,26 +224,69 @@ function DraftListItem({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <button
-          type="button"
-          onClick={() => onSelect(draft.id)}
-          className={cn(
-            "hover:bg-accent flex w-full flex-col gap-2 rounded-md p-3 text-left transition-colors",
-            selected && "bg-accent",
-          )}
-        >
-          <div className="flex w-full min-w-0 items-start justify-between gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{draft.title}</span>
-            <Badge variant={statusVariant[draft.status]}>{draft.status}</Badge>
-          </div>
-          <span className="text-muted-foreground line-clamp-2 text-xs">{draft.excerpt || draft.plaintext || "No excerpt yet"}</span>
-          <div className="flex w-full min-w-0 items-center justify-between gap-2">
-            {publication ? <PublicationChip publication={publication} /> : <span />}
-            <time className="text-muted-foreground shrink-0 text-[11px]" dateTime={draftActivityDate(draft)}>
-              {format(parseISO(draftActivityDate(draft)), "MMM d")}
-            </time>
-          </div>
-        </button>
+        <div className={cn("hover:bg-accent relative flex w-full rounded-md transition-colors", selected && "bg-accent")}>
+          <button
+            type="button"
+            onClick={() => onSelect(draft.id)}
+            className="flex min-h-20 min-w-0 flex-1 flex-col gap-2 rounded-md p-3 pr-14 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring xl:pr-3"
+          >
+            <div className="flex w-full min-w-0 items-start justify-between gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{draft.title}</span>
+              <Badge variant={statusVariant[draft.status]}>{draft.status}</Badge>
+            </div>
+            <span className="text-muted-foreground line-clamp-2 text-xs">{draft.excerpt || draft.plaintext || "No excerpt yet"}</span>
+            <div className="flex w-full min-w-0 items-center justify-between gap-2">
+              {publication ? <PublicationChip publication={publication} /> : <span />}
+              <time className="text-muted-foreground shrink-0 text-[11px]" dateTime={draftActivityDate(draft)}>
+                {format(parseISO(draftActivityDate(draft)), "MMM d")}
+              </time>
+            </div>
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="absolute top-2 right-1 xl:hidden"
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Actions for ${draft.title}`}
+              >
+                <EllipsisVerticalIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {(draft.status === "draft" || draft.status === "failed") ? (
+                <DropdownMenuItem onSelect={() => onChangePublication(draft)}>
+                  <BookOpenIcon /> Change publication
+                </DropdownMenuItem>
+              ) : null}
+              {draft.status === "scheduled" ? (
+                <>
+                  <DropdownMenuItem onSelect={() => onEditSchedule(draft)}>
+                    <CalendarClockIcon /> Edit scheduled time
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onRevert(draft)}>
+                    <Undo2Icon /> Revert to draft
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+              {draft.status === "published" ? (
+                <>
+                  <DropdownMenuItem onSelect={() => onSelect(draft.id)}>
+                    <PencilIcon /> Edit published post
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive" onSelect={() => onUnpublish(draft)}>
+                    <CloudOffIcon /> Unpublish
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive" onSelect={() => onDelete(draft)}>
+                <Trash2Icon /> Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
         {draft.status === "draft" || draft.status === "failed" ? (

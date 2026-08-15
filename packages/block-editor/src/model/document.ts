@@ -1,8 +1,9 @@
 import {
   joinMarkdownBlocks,
+  parseMarkdownBlock,
   parseMarkdownBlocks,
   type MarkdownBlock,
-} from "./markdown-blocks";
+} from "./markdown-blocks.js";
 
 export const blockDocumentSchemaVersion = 1 as const;
 
@@ -84,11 +85,17 @@ export function parseBlockDocument(value: unknown): BlockDocument {
   if (!isBlockDocument(value)) {
     throw new TypeError("Invalid block document snapshot.");
   }
-  const markdown = joinMarkdownBlocks(value.blocks);
-  if (markdown !== value.markdown) {
+
+  // Block fields other than id and source are derived. Reparse them so snapshots
+  // written by an older package version pick up the current normalized shape.
+  const normalized = createBlockDocument(
+    value.blocks.map((block) => ({ ...parseMarkdownBlock(block.source), id: block.id })),
+    value.revision,
+  );
+  if (normalized.markdown !== value.markdown) {
     throw new TypeError("Block document Markdown does not match its blocks.");
   }
-  return value;
+  return normalized;
 }
 
 export function isBlockDocument(value: unknown): value is BlockDocument {
@@ -99,5 +106,10 @@ export function isBlockDocument(value: unknown): value is BlockDocument {
     && (candidate.revision ?? -1) >= 0
     && typeof candidate.markdown === "string"
     && Array.isArray(candidate.blocks)
-    && candidate.blocks.every((block) => block && typeof block.id === "string" && block.id.length > 0);
+    && candidate.blocks.every((block) => (
+      block
+      && typeof block.id === "string"
+      && block.id.length > 0
+      && typeof block.source === "string"
+    ));
 }

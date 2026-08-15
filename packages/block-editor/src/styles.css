@@ -1,3 +1,6 @@
+/* Tailwind v4 consumers import this stylesheet; scan the package's compiled components. */
+@source "../dist";
+
 .typeset-block-editor {
   --typeset-font-body: inherit;
   --typeset-font-heading: inherit;

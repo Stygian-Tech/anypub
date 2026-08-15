@@ -6,7 +6,7 @@ const globalStyles = readFileSync(resolve(process.cwd(), "app/globals.css"), "ut
 
 describe("block editor style integration", () => {
   it("imports the package stylesheet and includes its Tailwind utility sources", () => {
-    expect(globalStyles).toContain('@import "@anypub/block-editor/styles";');
-    expect(globalStyles).toContain('@source "../../../packages/block-editor/src";');
+    expect(globalStyles).toContain('@import "@stygian/markdown-editor/styles";');
+    expect(globalStyles).not.toContain("packages/block-editor/src");
   });
 });

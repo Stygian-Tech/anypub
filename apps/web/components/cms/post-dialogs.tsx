@@ -15,9 +15,11 @@ import type { Draft, Publication } from "@/lib/types";
 export function NewDraftDialog({
   publications,
   onCreate,
+  triggerClassName,
 }: {
   publications: Publication[];
   onCreate: (publicationURI: string) => Promise<boolean>;
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = React.useState(false);
 
@@ -31,6 +33,7 @@ export function NewDraftDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
+          className={triggerClassName}
           variant="outline"
           size="sm"
           disabled={publications.length === 0}
@@ -40,7 +43,7 @@ export function NewDraftDialog({
           New
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent mobileSheet className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Choose a publication</DialogTitle>
           <DialogDescription>The new draft will be created for this publication.</DialogDescription>
@@ -90,7 +93,7 @@ export function ChangePublicationDialog({
 }) {
   return (
     <Dialog open={Boolean(draft)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent mobileSheet className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Change publication</DialogTitle>
           <DialogDescription>Move this draft to another publication.</DialogDescription>

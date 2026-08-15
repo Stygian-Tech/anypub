@@ -1,1 +1,1 @@
-export * from "@anypub/block-editor/model";
+export * from "@stygian/markdown-editor/model";

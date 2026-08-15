@@ -20,6 +20,7 @@ import { ExperimentalBadge, ExperimentalGlyph } from "@/components/cms/experimen
 import { assetContentURL, uploadImage } from "@/lib/asset-api";
 import { calendarItemsFromDrafts } from "@/lib/cms-data";
 import type { Draft, DraftStatus, Publication } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const statusVariant: Record<DraftStatus, "default" | "secondary" | "accent" | "outline" | "destructive"> = {
   draft: "outline",
@@ -57,12 +58,12 @@ function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (tags: string[
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-md border bg-background p-1.5 shadow-xs focus-within:ring-2 focus-within:ring-ring">
       {committedTags.map((tag) => (
-        <Badge key={tag} variant="accent" className="gap-1 pl-2 pr-1">
+        <Badge key={tag} variant="accent" className="min-h-11 gap-1 pl-3 pr-0 xl:min-h-6 xl:pl-2 xl:pr-1">
           {tag}
           <button
             type="button"
             aria-label={`Remove ${tag} tag`}
-            className="hover:bg-foreground/10 rounded-sm p-0.5"
+            className="hover:bg-foreground/10 flex size-11 items-center justify-center rounded-sm xl:size-5"
             onClick={() => updateTags(committedTags.filter((candidate) => candidate !== tag))}
           >
             <XIcon className="size-3" />
@@ -73,7 +74,7 @@ function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (tags: string[
         id="tags"
         value={value}
         placeholder={committedTags.length > 0 ? "Add tag" : "release accessibility updates"}
-        className="h-7 min-w-24 flex-1 border-0 px-1 shadow-none focus-visible:ring-0"
+        className="min-w-24 flex-1 border-0 px-1 shadow-none focus-visible:ring-0 xl:h-7"
         onChange={(event) => acceptValue(event.target.value)}
         onBlur={() => acceptValue(value, true)}
         onKeyDown={(event) => {
@@ -98,6 +99,8 @@ export function RightPanel({
   onScheduledDate,
   onSchedule,
   onDraftChange,
+  mobileVisible = false,
+  mobilePane = "details",
 }: {
   draft?: Draft;
   selectedPublication?: Publication;
@@ -106,9 +109,18 @@ export function RightPanel({
   onScheduledDate: (date?: Date) => void;
   onSchedule: () => void;
   onDraftChange: (patch: Partial<Draft>) => void;
+  mobileVisible?: boolean;
+  mobilePane?: "details" | "schedule";
 }) {
   const coverInputRef = React.useRef<HTMLInputElement>(null);
   const [uploadingCover, setUploadingCover] = React.useState(false);
+  const [desktopTab, setDesktopTab] = React.useState<"metadata" | "schedule" | "calendar">("metadata");
+  const [showMobileCalendar, setShowMobileCalendar] = React.useState(false);
+  const activeTab = mobileVisible
+    ? showMobileCalendar && mobilePane === "schedule"
+      ? "calendar"
+      : mobilePane === "schedule" ? "schedule" : "metadata"
+    : desktopTab;
 
   async function uploadCover(file?: File) {
     if (!draft || !file) return;
@@ -126,9 +138,13 @@ export function RightPanel({
   }
 
   return (
-    <aside className="hidden min-h-0 border-l xl:flex xl:flex-col">
-      <Tabs defaultValue="metadata" className="min-h-0 flex-1">
-        <div className="flex h-14 shrink-0 items-center border-b px-3">
+    <aside className={cn("min-h-0 flex-col border-l", mobileVisible ? "flex" : "hidden", "xl:flex")}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setDesktopTab(value as typeof desktopTab)}
+        className="min-h-0 flex-1"
+      >
+        <div className="hidden h-14 shrink-0 items-center border-b px-3 xl:flex">
           <TabsList className={sideTabsListClassName}>
             <TabsTrigger value="metadata" className={sideTabsTriggerClassName} style={sideTabsTriggerStyle}>
               <span className="min-w-0 truncate">Meta</span>
@@ -256,12 +272,26 @@ export function RightPanel({
                 <CalendarDaysIcon data-icon="inline-start" />
                 Schedule
               </Button>
+              <Button className="xl:hidden" variant="outline" onClick={() => setShowMobileCalendar(true)}>
+                <CalendarDaysIcon data-icon="inline-start" />
+                View publication calendar
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
         <TabsContent value="calendar" className="min-h-0 overflow-auto p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="text-sm font-medium">Publication calendar</span>
+            <div className="flex min-w-0 items-center gap-2">
+              <Button
+                className="-ml-2 xl:hidden"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowMobileCalendar(false)}
+              >
+                Back
+              </Button>
+              <span className="text-sm font-medium">Publication calendar</span>
+            </div>
             <ExperimentalBadge />
           </div>
           <Table>

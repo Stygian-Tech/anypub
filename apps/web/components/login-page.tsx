@@ -44,7 +44,7 @@ export function LoginPage({ onAuthorize }: { onAuthorize?: (url: string) => void
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-muted/30">
-      <div className="absolute left-4 top-4 z-10">
+      <div className="absolute top-[calc(0.5rem+env(safe-area-inset-top))] left-2 z-10 sm:left-4">
         <Button asChild variant="ghost" size="sm">
           <Link href="/">
             <ArrowLeftIcon data-icon="inline-start" /> Home

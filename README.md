@@ -5,6 +5,7 @@ AnyPub is a local-first CMS for writing and scheduling articles across a user's 
 ## Architecture
 
 - `apps/web`: Next.js App Router UI using shadcn-style source components.
+- `packages/block-editor`: publishable `@stygian/markdown-editor` React package; AnyPub-specific image storage stays in `apps/web`.
 - `services/backend`: Swift/Vapor API with Fluent SQLite persistence.
 - Drafts, cover assets, OAuth state, publish attempts, and calendar links are stored off-protocol in SQLite and the local filesystem.
 

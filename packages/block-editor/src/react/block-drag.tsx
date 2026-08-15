@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { GripVerticalIcon } from "lucide-react";
-import { isListMarkdownBlock, type MarkdownBlock } from "../model";
-import { cn } from "../utils";
+import { ChevronDownIcon, ChevronUpIcon, GripVerticalIcon } from "lucide-react";
+import { isListMarkdownBlock, type MarkdownBlock } from "../model/index.js";
+import { cn } from "../utils.js";
 
 
 export function BlockDropIndicator({ active, listLevel }: { active: boolean; listLevel: number }) {
@@ -49,30 +49,71 @@ export function BlockDragHandle({
   onMove: (fromIndex: number, toIndex: number) => void;
 }) {
   const handleOffset = blockHandleOffset(block);
+  const [actionsOpen, setActionsOpen] = React.useState(false);
 
   return (
-    <button
-      type="button"
-      data-testid="markdown-block-drag-handle"
-      aria-label={`Move block ${index + 1}`}
-      onPointerDown={(event) => onPointerDown(index, event)}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowUp") {
-          event.preventDefault();
-          onMove(index, index - 1);
-        }
-        if (event.key === "ArrowDown") {
-          event.preventDefault();
-          onMove(index, index + 1);
-        }
-      }}
-      className={cn(
-        "text-muted-foreground hover:text-foreground focus-visible:text-foreground flex size-7 shrink-0 !cursor-grab items-center justify-center bg-transparent opacity-0 outline-none transition-colors focus-visible:opacity-100 active:!cursor-grabbing group-hover/block:opacity-100 group-focus-within/block:opacity-100",
-      )}
-      style={{ marginTop: handleOffset }}
-    >
-      <GripVerticalIcon className="size-4" />
-    </button>
+    <div className="relative size-11 shrink-0 xl:size-7" style={{ marginTop: handleOffset }}>
+      <button
+        type="button"
+        data-testid="markdown-block-drag-handle"
+        aria-label={`Move block ${index + 1}`}
+        aria-expanded={actionsOpen}
+        onClick={(event) => {
+          if (event.currentTarget.dataset.dragMoved === "true") {
+            delete event.currentTarget.dataset.dragMoved;
+            return;
+          }
+          setActionsOpen((open) => !open);
+        }}
+        onPointerDown={(event) => onPointerDown(index, event)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            onMove(index, index - 1);
+          }
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            onMove(index, index + 1);
+          }
+        }}
+        className={cn(
+          "text-muted-foreground hover:text-foreground focus-visible:text-foreground flex size-11 shrink-0 !cursor-grab items-center justify-center bg-transparent opacity-100 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring active:!cursor-grabbing xl:size-7 xl:opacity-0 xl:focus-visible:opacity-100 xl:group-hover/block:opacity-100 xl:group-focus-within/block:opacity-100",
+        )}
+      >
+        <GripVerticalIcon className="size-5 xl:size-4" />
+      </button>
+      {actionsOpen ? (
+        <div
+          role="group"
+          aria-label={`Move block ${index + 1} controls`}
+          className="absolute top-0 left-11 z-30 flex overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md xl:hidden"
+        >
+          <button
+            type="button"
+            className="flex size-11 items-center justify-center outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+            aria-label={`Move block ${index + 1} up`}
+            disabled={index === 0}
+            onClick={() => {
+              onMove(index, index - 1);
+              setActionsOpen(false);
+            }}
+          >
+            <ChevronUpIcon className="size-5" />
+          </button>
+          <button
+            type="button"
+            className="flex size-11 items-center justify-center outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`Move block ${index + 1} down`}
+            onClick={() => {
+              onMove(index, index + 1);
+              setActionsOpen(false);
+            }}
+          >
+            <ChevronDownIcon className="size-5" />
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -128,4 +169,3 @@ export function reindexAfterMove(currentIndex: number | null, fromIndex: number,
 
   return currentIndex;
 }
-

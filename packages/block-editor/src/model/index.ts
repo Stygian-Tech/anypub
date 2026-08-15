@@ -1,2 +1,2 @@
-export * from "./document";
-export * from "./markdown-blocks";
+export * from "./document.js";
+export * from "./markdown-blocks.js";

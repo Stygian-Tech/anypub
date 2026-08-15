@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { cn } from "../utils";
-import { Textarea } from "./primitives";
+import { cn } from "../utils.js";
+import { Textarea } from "./primitives.js";
 
 export function InlineMarkdownBlockTextarea({
   id,

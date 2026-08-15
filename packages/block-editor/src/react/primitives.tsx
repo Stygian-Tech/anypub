@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "../utils";
+import { cn } from "../utils.js";
 
 export function Field({ className, ...props }: React.ComponentProps<"div">) {
   return (

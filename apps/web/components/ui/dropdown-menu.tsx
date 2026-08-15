@@ -18,7 +18,7 @@ function DropdownMenuContent({
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         sideOffset={sideOffset}
-        className={cn("bg-popover text-popover-foreground min-w-32 rounded-md border p-1 shadow-md", className)}
+        className={cn("bg-popover text-popover-foreground z-50 min-w-32 rounded-md border p-1 shadow-md", className)}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>
@@ -32,7 +32,7 @@ function DropdownMenuItem({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & { inset?: boolean }) {
   return (
     <DropdownMenuPrimitive.Item
-      className={cn("focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50", inset && "pl-8", className)}
+      className={cn("focus:bg-accent focus:text-accent-foreground relative flex min-h-11 cursor-default items-center gap-2 rounded-sm px-3 py-2 text-sm outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 xl:min-h-0 xl:px-2 xl:py-1.5", inset && "pl-8", className)}
       {...props}
     />
   );
