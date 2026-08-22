@@ -43,6 +43,15 @@ struct AppLogicTests {
         #expect(pcktCompatiblePath(title: "Testing Article", path: "/testing-article", draftID: draftID) == "/testing-article-56789ab")
         #expect(pcktCompatiblePath(title: "Testing Article", path: "/my-custom-slug", draftID: draftID) == "/my-custom-slug-56789ab")
         #expect(pcktCompatiblePath(title: "Changed", path: "/custom-path-56789ab", draftID: draftID) == "/custom-path-56789ab")
+
+        // A backfilled pckt post keeps the native path its published record already uses.
+        #expect(pcktCompatiblePath(
+            title: "Another Remote Test",
+            path: "/another-remote-test-psbyfky",
+            draftID: draftID,
+            isUpdate: true
+        ) == "/another-remote-test-psbyfky")
+        #expect(pcktCompatiblePath(title: "Untitled", path: nil, draftID: draftID, isUpdate: true) == "/untitled-56789ab")
     }
 
     @Test("Offprint paths use the standard document rkey and preserve custom slugs")
