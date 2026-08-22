@@ -42,7 +42,12 @@ struct PublisherService: Sendable {
 
         let offprintDocumentRkey: String?
         if host == .pckt {
-            draft.path = pcktCompatiblePath(title: draft.title, path: draft.path, draftID: draftID)
+            draft.path = pcktCompatiblePath(
+                title: draft.title,
+                path: draft.path,
+                draftID: draftID,
+                isUpdate: isUpdate
+            )
             offprintDocumentRkey = nil
         } else if host == .offprint {
             let rkey = try existingDocumentURI.map { try ATRecordReference(uri: $0).rkey }
@@ -461,8 +466,13 @@ struct PublisherService: Sendable {
     }
 }
 
-func pcktCompatiblePath(title: String, path: String?, draftID: UUID) -> String {
+func pcktCompatiblePath(title: String, path: String?, draftID: UUID, isUpdate: Bool = false) -> String {
     let current = path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    // A published document's path is its live URL, including posts backfilled from pckt's own
+    // editor, so an update keeps whatever path the published record already uses.
+    if isUpdate, !current.isEmpty {
+        return current.hasPrefix("/") ? current : "/\(current)"
+    }
     let source = current.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     let titleSlug = title.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current).lowercased()
         .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)

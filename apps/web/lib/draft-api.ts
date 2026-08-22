@@ -9,6 +9,14 @@ export function loadPublications(accountDID: string, signal?: AbortSignal) {
   return apiFetch<Publication[]>(`/api/publications?accountDID=${encodeURIComponent(accountDID)}`, { signal });
 }
 
+/** Imports published posts that already live in the account's repository but have no local draft. */
+export function backfillPublishedPosts(accountDID: string) {
+  return apiFetch<Draft[]>("/api/drafts/backfill", {
+    method: "POST",
+    body: JSON.stringify({ accountDID }),
+  });
+}
+
 export function getDraft(draftID: string) {
   return apiFetch<Draft>(`/api/drafts/${draftID}`);
 }

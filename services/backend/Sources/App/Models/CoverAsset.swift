@@ -4,6 +4,8 @@ import Vapor
 enum CoverAssetSource: String, Codable, Sendable {
     case device
     case unsplash
+    // An image downloaded back from the account's PDS while backfilling a published post.
+    case publication
 }
 
 final class CoverAsset: Model, Content, @unchecked Sendable {
