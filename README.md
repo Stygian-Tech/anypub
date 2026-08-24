@@ -63,24 +63,23 @@ bun run verify
 
 ## Continuous integration and deployment
 
-GitHub Actions runs path-aware checks for pull requests and pushes to `main`:
+GitHub Actions runs path-aware checks for pull requests and pushes to `main` or `dev`:
 
 - Changes to `apps/web`, `packages/block-editor`, or the root Bun/Turbo build files run the
   frontend typecheck, lint, complete Vitest suites, and production build.
 - Changes to `services/backend` run the complete Swift test suite and a release build.
 - Shared CI or workflow changes run both pipelines. Documentation-only changes skip both while
   still passing the stable `Required CI gate` check.
-- Railway tracks `main` directly and deploys only the affected service after GitHub CI passes.
+- Railway development tracks `dev` directly and deploys only the affected service after GitHub CI passes.
 
 Configure GitHub and each Railway service before enabling deployments:
 
 1. Protect `main` and require the `Required CI gate` status check.
-2. Connect both Railway services to this GitHub repository and track the `main` branch.
+2. Connect both Railway services to this GitHub repository and track the environment's deployment
+   branch (`dev` for development).
 3. Enable Railway's **Wait for CI** setting on both services.
-4. Configure these Railway watch paths (patterns are relative to the repository root):
-   - Web: `/apps/web/**`, `/packages/block-editor/**`, `/Dockerfile.web`, `/package.json`,
-     `/bun.lock`, `/turbo.json`, `/railway.json`, `/.dockerignore`
-   - API: `/services/backend/**`, `/.dockerignore`
+4. Keep the service watch paths in the committed `railway.json` files; patterns are relative to
+   the repository root.
 
 No Railway token or deployment secret is required in GitHub Actions. Railway owns deployment and
 uses the committed Dockerfile configuration for each service.
