@@ -11,6 +11,7 @@ import {
   RocketIcon,
   Settings2Icon,
   SunIcon,
+  TelescopeIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -183,6 +184,7 @@ function WorkspaceNavigation({
   const views = [
     { value: "posts", label: "Posts", icon: BookOpenIcon },
     { value: "publications", label: "Publications", icon: LibraryIcon },
+    { value: "research", label: "Research", icon: TelescopeIcon },
     { value: "feedback", label: "Feedback", icon: MessageSquareTextIcon },
   ] as const;
 
@@ -208,7 +210,13 @@ function WorkspaceNavigation({
 }
 
 function mobileViewTitle(view: WorkspaceView) {
-  return view === "posts" ? "Posts" : view === "publications" ? "Publications" : "Feedback";
+  return view === "posts"
+    ? "Posts"
+    : view === "publications"
+      ? "Publications"
+      : view === "research"
+        ? "Research"
+        : "Feedback";
 }
 
 function MobileAccountSheet({

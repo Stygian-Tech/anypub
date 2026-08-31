@@ -1,4 +1,4 @@
-export type WorkspaceView = "posts" | "publications" | "feedback";
+export type WorkspaceView = "posts" | "publications" | "research" | "feedback";
 export type MobileWorkspacePane = "list" | "write" | "details" | "schedule";
 
 export type WorkspaceNavigationState = {
@@ -7,7 +7,7 @@ export type WorkspaceNavigationState = {
   pane: MobileWorkspacePane;
 };
 
-const workspaceViews = new Set<WorkspaceView>(["posts", "publications", "feedback"]);
+const workspaceViews = new Set<WorkspaceView>(["posts", "publications", "research", "feedback"]);
 const editorPanes = new Set<MobileWorkspacePane>(["write", "details", "schedule"]);
 
 export const defaultWorkspaceNavigation: WorkspaceNavigationState = {
