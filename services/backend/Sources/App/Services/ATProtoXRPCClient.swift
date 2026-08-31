@@ -130,15 +130,29 @@ struct ATProtoXRPCClient: Sendable {
         cursor: String?,
         client: Client
     ) async throws -> ListRecordsResponse<JSONValue> {
+        try await listRecordsPage(
+            account: account,
+            collection: "site.standard.publication",
+            cursor: cursor,
+            client: client
+        )
+    }
+
+    func listRecordsPage(
+        account: LinkedAccount,
+        collection: String,
+        cursor: String?,
+        client: Client
+    ) async throws -> ListRecordsResponse<JSONValue> {
         var query = [
             "repo": account.did,
-            "collection": "site.standard.publication",
+            "collection": collection,
             "limit": "100",
         ]
         if let cursor { query["cursor"] = cursor }
         let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.listRecords", query: query)
         let response = try await xrpcGet(uri, client: client)
-        try requireSuccess(response, operation: "publication listing")
+        try requireSuccess(response, operation: "\(collection) listing")
         return try response.content.decode(ListRecordsResponse<JSONValue>.self)
     }
 

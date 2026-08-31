@@ -12,6 +12,7 @@ func routes(_ app: Application) throws {
     try api.register(collection: AssetController())
     try api.register(collection: UnsplashController())
     try api.register(collection: FeedbackController())
+    try api.register(collection: ResearchController())
 
     app.get("health") { _ in
         HealthResponse(ok: true)
