@@ -23,6 +23,22 @@ Publishing a known host without a valid adapter is rejected before any remote wr
 
 Scheduling creates or updates `community.lexicon.calendar.event` records linked to the article URL and document AT-URI when available.
 
+## Backfilling published posts
+
+Published documents are public repository records, so `POST /api/drafts/backfill` imports every
+`site.standard.document` in the account's PDS that no local draft tracks yet. The workspace runs it
+once per account per session and again on a manual publication sync, so posts written outside
+AnyPub appear under Published with their document AT-URI, CID, and — for Offprint and pckt — their
+host wrapper record, which keeps unpublish and delete complete.
+
+Bodies are read back into Markdown from whichever content union the host wrote (`pub.leaflet.content`,
+`app.offprint.content`, `blog.pckt.content`, or `at.markpub.markdown`), including offloaded blob
+bodies, rich-text facets, nested and task lists, code languages, and thematic breaks; a document
+whose content cannot be read falls back to its `textContent`. Cover and body images are downloaded
+into local assets that keep the original blob reference, so republishing reuses the published blob
+instead of uploading a copy. Images that cannot be downloaded degrade to links, and documents whose
+`site` is not a cached publication are skipped.
+
 AT Protocol accounts are linked through discovery, PAR, PKCE, DPoP-bound token exchange, encrypted token/key persistence, DPoP nonce retry, and refresh-token rotation. Existing accounts created before these fields and scopes were added must reconnect. Production startup requires `TOKEN_ENCRYPTION_KEY` to be valid base64 containing at least 32 bytes.
 
 ## Development
@@ -44,6 +60,29 @@ Full verification:
 ```bash
 bun run verify
 ```
+
+## Continuous integration and deployment
+
+GitHub Actions runs path-aware checks for pull requests and pushes to `main` or `dev`:
+
+- Changes to `apps/web`, `packages/block-editor`, or the root Bun/Turbo build files run the
+  frontend typecheck, lint, complete Vitest suites, and production build.
+- Changes to `services/backend` run the complete Swift test suite and a release build.
+- Shared CI or workflow changes run both pipelines. Documentation-only changes skip both while
+  still passing the stable `Required CI gate` check.
+- Railway development tracks `dev` directly and deploys only the affected service after GitHub CI passes.
+
+Configure GitHub and each Railway service before enabling deployments:
+
+1. Protect `main` and require the `Required CI gate` status check.
+2. Connect both Railway services to this GitHub repository and track the environment's deployment
+   branch (`dev` for development).
+3. Enable Railway's **Wait for CI** setting on both services.
+4. Keep the service watch paths in the committed `railway.json` files; patterns are relative to
+   the repository root.
+
+No Railway token or deployment secret is required in GitHub Actions. Railway owns deployment and
+uses the committed Dockerfile configuration for each service.
 
 ## Railway testing environment
 

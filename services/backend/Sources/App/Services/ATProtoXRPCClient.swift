@@ -134,6 +134,7 @@ struct ATProtoXRPCClient: Sendable {
             account: account,
             collection: "site.standard.publication",
             cursor: cursor,
+            operation: "publication listing",
             client: client
         )
     }
@@ -144,6 +145,22 @@ struct ATProtoXRPCClient: Sendable {
         cursor: String?,
         client: Client
     ) async throws -> ListRecordsResponse<JSONValue> {
+        try await listRecordsPage(
+            account: account,
+            collection: collection,
+            cursor: cursor,
+            operation: "\(collection) listing",
+            client: client
+        )
+    }
+
+    private func listRecordsPage(
+        account: LinkedAccount,
+        collection: String,
+        cursor: String?,
+        operation: String,
+        client: Client
+    ) async throws -> ListRecordsResponse<JSONValue> {
         var query = [
             "repo": account.did,
             "collection": collection,
@@ -152,8 +169,27 @@ struct ATProtoXRPCClient: Sendable {
         if let cursor { query["cursor"] = cursor }
         let uri = try xrpcURL(pdsURL: account.pdsURL, method: "com.atproto.repo.listRecords", query: query)
         let response = try await xrpcGet(uri, client: client)
-        try requireSuccess(response, operation: "\(collection) listing")
+        try requireSuccess(response, operation: operation)
         return try response.content.decode(ListRecordsResponse<JSONValue>.self)
+    }
+
+    // Blobs are public, so backfilling a published document reads them without DPoP.
+    func fetchBlob(
+        account: LinkedAccount,
+        cid: String,
+        maximumByteSize: Int,
+        client: Client
+    ) async throws -> Data? {
+        let uri = try xrpcURL(
+            pdsURL: account.pdsURL,
+            method: "com.atproto.sync.getBlob",
+            query: ["did": account.did, "cid": cid]
+        )
+        let response = try await client.get(URI(string: uri)).get()
+        if isXRPCError(response, named: "BlobNotFound", fallbackStatus: .notFound) { return nil }
+        try requireSuccess(response, operation: "blob download")
+        guard let buffer = response.body, buffer.readableBytes <= maximumByteSize else { return nil }
+        return Data(buffer.readableBytesView)
     }
 
     func getRecord(

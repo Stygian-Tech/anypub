@@ -58,6 +58,19 @@ extension JSONValue {
         return value
     }
 
+    var boolValue: Bool? {
+        guard case .bool(let value) = self else { return nil }
+        return value
+    }
+
+    var integerValue: Int? {
+        switch self {
+        case .integer(let value): value
+        case .number(let value): Int(value)
+        default: nil
+        }
+    }
+
     var blobCID: String? {
         objectValue?["ref"]?.objectValue?["$link"]?.stringValue
     }

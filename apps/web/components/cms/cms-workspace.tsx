@@ -72,6 +72,7 @@ export function CmsWorkspace() {
   const [mobilePane, setMobilePane] = React.useState<MobileWorkspacePane>(initialNavigation.pane);
   const requestedDraftID = React.useRef(initialNavigation.draftID);
   const [draftsLoadedForAccount, setDraftsLoadedForAccount] = React.useState("");
+  const backfilledAccounts = React.useRef(new Set<string>());
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [draftSaveStates, setDraftSaveStates] = React.useState<Record<string, DraftSaveState>>({});
   const [isPublishing, setIsPublishing] = React.useState(false);
@@ -197,6 +198,38 @@ export function CmsWorkspace() {
 
     return () => controller.abort();
   }, [activeAccountDID, navigateWorkspace]);
+
+  const mergeImportedDrafts = React.useCallback((imported: Draft[]) => {
+    if (imported.length === 0) return;
+    imported.forEach((draft) => editVersions.current.set(draft.id, 0));
+    setDraftSaveStates((current) => ({
+      ...current,
+      ...Object.fromEntries(imported.map((draft) => [draft.id, "saved" as DraftSaveState])),
+    }));
+    setDrafts((current) => {
+      const known = new Set(current.map((draft) => draft.id));
+      const additions = imported.filter((draft) => !known.has(draft.id));
+      return additions.length > 0 ? [...current, ...additions] : current;
+    });
+    toast.success(imported.length === 1
+      ? "Imported 1 published post from your PDS"
+      : `Imported ${imported.length} published posts from your PDS`);
+  }, []);
+
+  // Published posts already live in the account's repository, so anything written outside AnyPub
+  // is imported once the local drafts for this account are on screen.
+  React.useEffect(() => {
+    if (!activeAccountDID || draftsLoadedForAccount !== activeAccountDID) return;
+    if (backfilledAccounts.current.has(activeAccountDID)) return;
+    backfilledAccounts.current.add(activeAccountDID);
+
+    draftAPI.backfillPublishedPosts(activeAccountDID)
+      .then(mergeImportedDrafts)
+      .catch(() => {
+        backfilledAccounts.current.delete(activeAccountDID);
+        toast.error("Could not import published posts from your PDS");
+      });
+  }, [activeAccountDID, draftsLoadedForAccount, mergeImportedDrafts]);
 
   React.useEffect(() => {
     if (draftsLoadedForAccount !== activeAccountDID || activeView !== "posts" || !requestedDraftID.current) return;
@@ -564,6 +597,14 @@ export function CmsWorkspace() {
       toast.success("Publication cache refreshed");
     } catch (error) {
       toast.error(errorMessage(error, "Could not sync publications"));
+      setIsSyncing(false);
+      return;
+    }
+
+    try {
+      mergeImportedDrafts(await draftAPI.backfillPublishedPosts(activeAccountDID));
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not import published posts from your PDS"));
     } finally {
       setIsSyncing(false);
     }

@@ -5,6 +5,7 @@ struct DraftController: RouteCollection {
         let drafts = routes.grouped("drafts")
         drafts.get(use: list)
         drafts.post(use: create)
+        drafts.post("backfill", use: backfill)
         drafts.get(":id", use: get)
         drafts.put(":id", use: update)
         drafts.patch(":id", "publication", use: changePublication)
@@ -54,6 +55,15 @@ struct DraftController: RouteCollection {
         )
         try await draft.save(on: req.db)
         return DraftResponse(draft: draft)
+    }
+
+    /// Imports the account's published `site.standard.document` records that no draft tracks yet.
+    func backfill(req: Request) async throws -> [DraftResponse] {
+        let input = try req.content.decode(BackfillDraftsRequest.self)
+        let account = try await req.requireAccountDID(input.accountDID)
+        return try await req.application.publishedPostBackfill
+            .backfill(account: account, req: req)
+            .map(DraftResponse.init(draft:))
     }
 
     func get(req: Request) async throws -> DraftResponse {
@@ -232,6 +242,10 @@ struct UpsertDraftRequest: Content {
         self.blockRevision = blockRevision
         self.coverAssetID = coverAssetID
     }
+}
+
+struct BackfillDraftsRequest: Content {
+    let accountDID: String
 }
 
 struct ScheduleDraftRequest: Content {
