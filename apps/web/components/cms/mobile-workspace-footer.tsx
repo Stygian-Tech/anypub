@@ -49,18 +49,18 @@ export function MobileWorkspaceFooter({
   }
 
   const views = [
-    { value: "posts", label: "Posts", icon: BookOpenIcon },
-    { value: "publications", label: "Publications", icon: LibraryIcon },
-    { value: "research", label: "Research", icon: TelescopeIcon },
-    { value: "feedback", label: "Feedback", icon: MessageSquareTextIcon },
+    { value: "posts", label: "Posts", mobileLabel: "Posts", icon: BookOpenIcon },
+    { value: "publications", label: "Publications", mobileLabel: "Sites", icon: LibraryIcon },
+    { value: "research", label: "Research", mobileLabel: "Research", icon: TelescopeIcon },
+    { value: "feedback", label: "Feedback", mobileLabel: "Feedback", icon: MessageSquareTextIcon },
   ] as const;
 
   return (
     <nav
       aria-label="Mobile workspace"
-      className="z-20 grid shrink-0 grid-cols-4 border-t bg-background/95 px-1 pt-1 pb-[calc(0.25rem+env(safe-area-inset-bottom))] backdrop-blur xl:hidden sm:px-2"
+      className="z-20 grid shrink-0 grid-cols-4 gap-0.5 border-t bg-background/95 px-1 pt-1 pb-[calc(0.25rem+env(safe-area-inset-bottom))] backdrop-blur xl:hidden sm:px-2"
     >
-      {views.map(({ value, label, icon: Icon }) => (
+      {views.map(({ value, label, mobileLabel, icon: Icon }) => (
         <button
           key={value}
           type="button"
@@ -68,12 +68,12 @@ export function MobileWorkspaceFooter({
           aria-current={activeView === value ? "page" : undefined}
           onClick={() => onViewChange(value)}
           className={cn(
-            "flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-medium transition-colors sm:px-2 sm:text-[11px]",
+            "flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-0 text-[9px] leading-none font-medium transition-colors sm:px-2 sm:text-[11px]",
             activeView === value ? "text-foreground" : "text-muted-foreground",
           )}
         >
           <Icon className={cn("size-5", activeView === value && "text-primary")} aria-hidden />
-          {label}
+          <span className="max-w-full truncate">{mobileLabel}</span>
         </button>
       ))}
     </nav>
