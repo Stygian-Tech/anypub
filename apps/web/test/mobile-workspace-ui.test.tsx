@@ -102,6 +102,8 @@ describe("mobile workspace controls", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open Feedback" }));
     expect(onViewChange).toHaveBeenCalledWith("feedback");
+    fireEvent.click(screen.getByRole("button", { name: "Open Research" }));
+    expect(onViewChange).toHaveBeenCalledWith("research");
   });
 
   it("keeps save and publish actions in the editing footer", () => {

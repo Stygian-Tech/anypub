@@ -32,6 +32,16 @@ describe("workspace navigation", () => {
     });
   });
 
+  it("supports the research inventory as a global destination", () => {
+    expect(parseWorkspaceNavigation("?view=research&draft=draft-1&pane=details")).toEqual({
+      view: "research",
+      draftID: "",
+      pane: "list",
+    });
+    expect(workspaceNavigationURL({ view: "research", draftID: "ignored", pane: "schedule" }))
+      .toBe("/editor?view=research");
+  });
+
   it("serializes stable, minimal editor URLs", () => {
     expect(workspaceNavigationURL(defaultWorkspaceNavigation)).toBe("/editor");
     expect(workspaceNavigationURL({ view: "publications", draftID: "ignored", pane: "details" }))

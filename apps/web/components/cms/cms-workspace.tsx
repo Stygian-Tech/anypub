@@ -20,6 +20,7 @@ import {
 } from "@/components/cms/post-dialogs";
 import { RightPanel } from "@/components/cms/right-panel";
 import { PublicationsDashboard } from "@/components/cms/publications-dashboard";
+import { ResearchSection } from "@/components/cms/research-section";
 import { WorkspaceHeader } from "@/components/cms/workspace-header";
 import { FeedbackSection } from "@/components/cms/feedback-section";
 import { MobileWorkspaceFooter } from "@/components/cms/mobile-workspace-footer";
@@ -641,6 +642,8 @@ export function CmsWorkspace() {
               isSyncing={isSyncing}
               onSync={syncPublications}
             />
+          ) : activeView === "research" ? (
+            <ResearchSection />
           ) : activeView === "feedback" ? (
             <FeedbackSection account={activeAccount} onReconnect={logOut} />
           ) : (

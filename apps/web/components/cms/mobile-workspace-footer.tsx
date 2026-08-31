@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpenIcon, LibraryIcon, MessageSquareTextIcon, RocketIcon, SaveIcon } from "lucide-react";
+import { BookOpenIcon, LibraryIcon, MessageSquareTextIcon, RocketIcon, SaveIcon, TelescopeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { DraftSaveState } from "@/lib/draft-editor";
@@ -51,13 +51,14 @@ export function MobileWorkspaceFooter({
   const views = [
     { value: "posts", label: "Posts", icon: BookOpenIcon },
     { value: "publications", label: "Publications", icon: LibraryIcon },
+    { value: "research", label: "Research", icon: TelescopeIcon },
     { value: "feedback", label: "Feedback", icon: MessageSquareTextIcon },
   ] as const;
 
   return (
     <nav
       aria-label="Mobile workspace"
-      className="z-20 grid shrink-0 grid-cols-3 border-t bg-background/95 px-2 pt-1 pb-[calc(0.25rem+env(safe-area-inset-bottom))] backdrop-blur xl:hidden"
+      className="z-20 grid shrink-0 grid-cols-4 border-t bg-background/95 px-1 pt-1 pb-[calc(0.25rem+env(safe-area-inset-bottom))] backdrop-blur xl:hidden sm:px-2"
     >
       {views.map(({ value, label, icon: Icon }) => (
         <button
@@ -67,7 +68,7 @@ export function MobileWorkspaceFooter({
           aria-current={activeView === value ? "page" : undefined}
           onClick={() => onViewChange(value)}
           className={cn(
-            "flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-2 text-[11px] font-medium transition-colors",
+            "flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-medium transition-colors sm:px-2 sm:text-[11px]",
             activeView === value ? "text-foreground" : "text-muted-foreground",
           )}
         >
