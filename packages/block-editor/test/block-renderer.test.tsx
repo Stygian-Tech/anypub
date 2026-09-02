@@ -4,6 +4,35 @@ import { parseMarkdownBlock } from "../src/model";
 import { MarkdownBlockPreview } from "../src/react/block-renderer";
 
 describe("Markdown block preview", () => {
+  it("renders escaped quote and comment Markdown as literal text", () => {
+    const source = String.raw`\[label\]\(https://example.com\) \!\[image\]\(https://example.com/image.png\) \*stars\* \\path \a`;
+    for (const blockSource of [source, `> ${source}`]) {
+      const markup = renderToStaticMarkup(<MarkdownBlockPreview block={parseMarkdownBlock(blockSource)} />);
+
+      expect(markup.replace(/<[^>]+>/g, "")).toBe(String.raw`[label](https://example.com) ![image](https://example.com/image.png) *stars* \path \a`);
+      expect(markup).not.toMatch(/<(?:a|em|strong|img)\b/);
+    }
+  });
+
+  it("keeps escaped punctuation inside source link labels and destinations", () => {
+    const markup = renderToStaticMarkup(
+      <MarkdownBlockPreview block={parseMarkdownBlock(String.raw`[Source \[notes\] \*draft\*](https://example.com/notes\(1\))`)} />,
+    );
+
+    expect(markup).toContain('href="https://example.com/notes(1)"');
+    expect(markup).toContain("Source [notes] *draft*</a>");
+  });
+
+  it("ignores escaped style delimiters while preserving code backslashes", () => {
+    const markup = renderToStaticMarkup(
+      <MarkdownBlockPreview block={parseMarkdownBlock(String.raw`**café \*\*quoted\*\* 😀** *literal \*star\** and ` + "`\\*code\\*`")} />,
+    );
+
+    expect(markup).toContain('<strong class="font-semibold">café **quoted** 😀</strong>');
+    expect(markup).toContain('<em class="italic">literal *star*</em>');
+    expect(markup).toContain(String.raw`>\*code\*</code>`);
+  });
+
   it("renders italics, strikethrough, and underline extensions", () => {
     const markup = renderToStaticMarkup(
       <MarkdownBlockPreview block={parseMarkdownBlock("*first* _second_ ~~removed~~ ++underlined++")} />,

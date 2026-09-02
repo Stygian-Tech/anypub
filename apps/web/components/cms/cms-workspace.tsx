@@ -21,6 +21,8 @@ import {
 import { RightPanel } from "@/components/cms/right-panel";
 import { PublicationsDashboard } from "@/components/cms/publications-dashboard";
 import { ResearchSection } from "@/components/cms/research-section";
+import { ResearchPostDialog, type ResearchPostSubmission } from "@/components/cms/research-post-dialog";
+import { appendResearchToDraft, type ResearchPostMaterial } from "@/lib/research-composer";
 import { WorkspaceHeader } from "@/components/cms/workspace-header";
 import { FeedbackSection } from "@/components/cms/feedback-section";
 import { MobileWorkspaceFooter } from "@/components/cms/mobile-workspace-footer";
@@ -84,6 +86,8 @@ export function CmsWorkspace() {
   const [revertDraftToConfirm, setRevertDraftToConfirm] = React.useState<Draft | null>(null);
   const [unpublishDraftToConfirm, setUnpublishDraftToConfirm] = React.useState<Draft | null>(null);
   const [isMutatingDraft, setIsMutatingDraft] = React.useState(false);
+  const [researchMaterial, setResearchMaterial] = React.useState<ResearchPostMaterial | null>(null);
+  const researchSubmission = React.useRef(false);
   const [search, setSearch] = React.useState("");
   const [draftListTab, setDraftListTab] = React.useState<DraftListTab>("drafts");
   const [draftListGrouping, setDraftListGrouping] = React.useState<DraftListGrouping>("all");
@@ -346,7 +350,10 @@ export function CmsWorkspace() {
   }
 
   function trackDraftSave(draft: Draft, version: number, notify: boolean) {
-    const save = persistDraftSnapshot(draft, version, notify);
+    // Keep writes for one draft in order so an older autosave cannot overwrite a later insertion.
+    const previousSave = inFlightSaves.current.get(draft.id);
+    setDraftSaveState(draft.id, "saving");
+    const save = Promise.resolve(previousSave).then(() => persistDraftSnapshot(draft, version, notify));
     inFlightSaves.current.set(draft.id, save);
     void save.finally(() => {
       if (inFlightSaves.current.get(draft.id) === save) {
@@ -391,19 +398,20 @@ export function CmsWorkspace() {
     scheduleAutosave(next, version);
   }
 
-  async function createDraft(publicationURI: string) {
+  async function createDraft(publicationURI: string, seed?: { title: string; markdown: string }) {
     const publication = accountPublications.find((candidate) => candidate.uri === publicationURI);
     if (!publication) {
       return false;
     }
     const id = crypto.randomUUID();
-    const next: Draft = {
+    const title = seed?.title.trim() || "Untitled article";
+    const empty: Draft = {
       id,
       accountDID: activeAccountDID,
       publicationURI: publication.uri,
       publicationURL: publication.url,
-      title: "Untitled article",
-      path: slugPathFromTitle("Untitled article", slugDiscriminatorFromDraftID(id)),
+      title,
+      path: slugPathFromTitle(title, slugDiscriminatorFromDraftID(id)),
       excerpt: "",
       tags: [],
       markdown: "",
@@ -413,6 +421,7 @@ export function CmsWorkspace() {
       updatedAt: new Date().toISOString(),
     };
     try {
+      const next = seed ? appendResearchToDraft(empty, seed.markdown) : empty;
       const persisted = await draftAPI.createDraft(next);
       setDrafts((current) => [persisted, ...current]);
       editVersions.current.set(persisted.id, 0);
@@ -424,6 +433,32 @@ export function CmsWorkspace() {
     } catch {
       toast.error("Could not create draft");
       return false;
+    }
+  }
+
+  async function useResearchInPost(submission: ResearchPostSubmission) {
+    if (researchSubmission.current || !activeAccountDID || draftsLoadedForAccount !== activeAccountDID || !submission.markdown.trim()) return false;
+    researchSubmission.current = true;
+    try {
+      if (submission.destination.type === "new") {
+        return await createDraft(submission.destination.publicationURI, submission);
+      }
+      const targetID = submission.destination.draftID;
+      const target = drafts.find((draft) => draft.id === targetID && draft.accountDID === activeAccountDID);
+      if (!target || (target.status !== "draft" && target.status !== "failed")) return false;
+      clearAutosave(target.id);
+      const next = appendResearchToDraft(target, submission.markdown);
+      const version = (editVersions.current.get(target.id) ?? 0) + 1;
+      editVersions.current.set(target.id, version);
+      // Persist the combined snapshot before changing the UI. Failed attempts can retry without appending twice.
+      if (!await trackDraftSave(next, version, false)) return false;
+      setSearch("");
+      setDraftListTab("drafts");
+      selectDraft(target.id);
+      toast.success("Research added to draft");
+      return true;
+    } finally {
+      researchSubmission.current = false;
     }
   }
 
@@ -684,7 +719,7 @@ export function CmsWorkspace() {
               onSync={syncPublications}
             />
           ) : activeView === "research" ? (
-            <ResearchSection />
+            <ResearchSection onUseInPost={setResearchMaterial} canUseInPost={draftsLoadedForAccount === activeAccountDID} />
           ) : activeView === "feedback" ? (
             <FeedbackSection account={activeAccount} onReconnect={logOut} />
           ) : (
@@ -776,6 +811,15 @@ export function CmsWorkspace() {
             onPublish={publishDraft}
           />
         </main>
+        {researchMaterial ? (
+          <ResearchPostDialog
+            material={researchMaterial}
+            drafts={sortDraftsReverseChronological(drafts.filter((draft) => draft.accountDID === activeAccountDID && (draft.status === "draft" || draft.status === "failed")))}
+            publications={accountPublications}
+            onOpenChange={(open) => { if (!open) setResearchMaterial(null); }}
+            onSubmit={useResearchInPost}
+          />
+        ) : null}
         <ChangePublicationDialog
           draft={publicationDraft}
           publications={accountPublications}

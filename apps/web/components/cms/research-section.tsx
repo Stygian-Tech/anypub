@@ -9,6 +9,7 @@ import {
   LibraryBigIcon,
   LoaderCircleIcon,
   RefreshCwIcon,
+  SquarePenIcon,
 } from "lucide-react";
 import {
   loadResearch,
@@ -17,13 +18,19 @@ import {
   type SembleResearchCard,
   type SembleResearchCollection,
 } from "@/lib/research-api";
+import { materialFromMargin, materialFromSemble, type ResearchPostMaterial } from "@/lib/research-composer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export function ResearchSection() {
+type ResearchActions = {
+  onUseInPost: (material: ResearchPostMaterial) => void;
+  canUseInPost?: boolean;
+};
+
+export function ResearchSection({ onUseInPost, canUseInPost = true }: ResearchActions) {
   const [research, setResearch] = React.useState<ResearchResponse | null>(null);
   const [error, setError] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(true);
@@ -57,7 +64,7 @@ export function ResearchSection() {
             <p className="text-muted-foreground text-xs font-medium uppercase tracking-[0.16em]">Your AT Protocol library</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight">Research</h1>
             <p className="text-muted-foreground mt-1 max-w-2xl text-sm leading-6">
-              Browse your Semble collections and Margin annotations when you are looking for something worth developing.
+              Turn your Semble links and Margin quotes and comments into your next post.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={refresh} disabled={isLoading}>
@@ -90,11 +97,11 @@ export function ResearchSection() {
             </TabsList>
             <TabsContent value="semble">
               <SourceNotice message={research.semble.error} />
-              <SembleCollections collections={research.semble.collections} />
+              <SembleCollections collections={research.semble.collections} onUseInPost={onUseInPost} canUseInPost={canUseInPost} />
             </TabsContent>
             <TabsContent value="margin">
               <SourceNotice message={research.margin.error} />
-              <MarginAnnotations annotations={research.margin.annotations} />
+              <MarginAnnotations annotations={research.margin.annotations} onUseInPost={onUseInPost} canUseInPost={canUseInPost} />
             </TabsContent>
           </Tabs>
         ) : null}
@@ -111,7 +118,7 @@ function SourceNotice({ message }: { message?: string }) {
   ) : null;
 }
 
-function SembleCollections({ collections }: { collections: SembleResearchCollection[] }) {
+function SembleCollections({ collections, ...actions }: { collections: SembleResearchCollection[] } & ResearchActions) {
   if (!collections.length) {
     return (
       <Empty className="min-h-64">
@@ -139,7 +146,7 @@ function SembleCollections({ collections }: { collections: SembleResearchCollect
           </CardHeader>
           <CardContent className="divide-y p-0">
             {collection.cards.length ? collection.cards.map((card) => (
-              <SembleCard key={card.uri} card={card} />
+              <SembleCard key={card.uri} card={card} {...actions} />
             )) : (
               <p className="text-muted-foreground p-4 text-sm">This collection is empty.</p>
             )}
@@ -150,7 +157,7 @@ function SembleCollections({ collections }: { collections: SembleResearchCollect
   );
 }
 
-function SembleCard({ card }: { card: SembleResearchCard }) {
+function SembleCard({ card, onUseInPost, canUseInPost }: { card: SembleResearchCard } & ResearchActions) {
   const title = card.title || card.note || card.url || "Untitled saved item";
   return (
     <article className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-6">
@@ -164,6 +171,8 @@ function SembleCard({ card }: { card: SembleResearchCard }) {
         {card.description ? <p className="text-muted-foreground mt-2 line-clamp-3 text-sm leading-6">{card.description}</p> : null}
         {card.createdAt ? <ResearchDate value={card.createdAt} /> : null}
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+      <UseInPostButton material={materialFromSemble(card)} onUseInPost={onUseInPost} canUseInPost={canUseInPost} />
       {safeHTTPURL(card.url) ? (
         <Button variant="ghost" size="sm" asChild>
           <a href={card.url} target="_blank" rel="noreferrer">
@@ -171,11 +180,12 @@ function SembleCard({ card }: { card: SembleResearchCard }) {
           </a>
         </Button>
       ) : null}
+      </div>
     </article>
   );
 }
 
-function MarginAnnotations({ annotations }: { annotations: MarginResearchAnnotation[] }) {
+function MarginAnnotations({ annotations, onUseInPost, canUseInPost }: { annotations: MarginResearchAnnotation[] } & ResearchActions) {
   if (!annotations.length) {
     return (
       <Empty className="min-h-64">
@@ -208,6 +218,8 @@ function MarginAnnotations({ annotations }: { annotations: MarginResearchAnnotat
                 {annotation.tags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}
               </div>
             ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+            <UseInPostButton material={materialFromMargin(annotation)} onUseInPost={onUseInPost} canUseInPost={canUseInPost} />
             {safeHTTPURL(annotation.source) ? (
               <Button variant="ghost" size="sm" className="-ml-3" asChild>
                 <a href={annotation.source} target="_blank" rel="noreferrer">
@@ -215,10 +227,21 @@ function MarginAnnotations({ annotations }: { annotations: MarginResearchAnnotat
                 </a>
               </Button>
             ) : null}
+            </div>
           </CardContent>
         </Card>
       ))}
     </div>
+  );
+}
+
+function UseInPostButton({ material, onUseInPost, canUseInPost }: { material: ResearchPostMaterial } & ResearchActions) {
+  const hasContent = Boolean(material.quote || material.sourceURL || material.comment);
+  return (
+    <Button variant="outline" size="sm" disabled={!canUseInPost || !hasContent} onClick={() => onUseInPost(material)}
+      title={!canUseInPost ? "Waiting for your drafts. Reload the workspace if they remain unavailable." : !hasContent ? "This item has no quote, safe source link, or comment to add." : undefined}>
+      <SquarePenIcon data-icon="inline-start" /> Use in post
+    </Button>
   );
 }
 

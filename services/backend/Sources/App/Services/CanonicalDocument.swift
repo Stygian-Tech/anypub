@@ -435,6 +435,11 @@ private enum InlineMarkdown {
 
         mutating func parse(until delimiter: String? = nil) {
             while index < source.endIndex {
+                if let escaped = escapedCharacter(at: index) {
+                    output.append(escaped)
+                    index = source.index(index, offsetBy: 2)
+                    continue
+                }
                 if let delimiter, source[index...].hasPrefix(delimiter) {
                     index = source.index(index, offsetBy: delimiter.count)
                     return
@@ -449,15 +454,19 @@ private enum InlineMarkdown {
         mutating func consumeDelimited(_ delimiter: String, feature: InlineFeature) -> Bool {
             guard source[index...].hasPrefix(delimiter) else { return false }
             let contentStart = source.index(index, offsetBy: delimiter.count)
-            guard let close = source.range(of: delimiter, range: contentStart..<source.endIndex)?.lowerBound else { return false }
+            guard let close = firstDelimiter(delimiter, from: contentStart, honoringEscapes: feature != .code) else { return false }
             index = contentStart
             let start = output.utf8.count
             let savedEnd = close
             let inner = String(source[index..<savedEnd])
-            var child = Parser(inner)
-            child.parse()
-            output += child.output
-            spans += child.spans.map { InlineSpan(byteStart: start + $0.byteStart, byteEnd: start + $0.byteEnd, feature: $0.feature) }
+            if feature == .code {
+                output += inner
+            } else {
+                var child = Parser(inner)
+                child.parse()
+                output += child.output
+                spans += child.spans.map { InlineSpan(byteStart: start + $0.byteStart, byteEnd: start + $0.byteEnd, feature: $0.feature) }
+            }
             let end = output.utf8.count
             if end > start { spans.append(InlineSpan(byteStart: start, byteEnd: end, feature: feature)) }
             index = source.index(savedEnd, offsetBy: delimiter.count)
@@ -468,13 +477,17 @@ private enum InlineMarkdown {
             let prefix = image ? "![" : "["
             guard source[index...].hasPrefix(prefix) else { return false }
             let labelStart = source.index(index, offsetBy: prefix.count)
-            guard let labelEnd = source[labelStart...].firstIndex(of: "]"),
+            guard let labelEnd = firstDelimiter("]", from: labelStart),
                   source.index(after: labelEnd) < source.endIndex,
                   source[source.index(after: labelEnd)] == "(",
-                  let destinationEnd = source[source.index(labelEnd, offsetBy: 2)...].firstIndex(of: ")")
+                  let destinationEnd = firstDelimiter(")", from: source.index(labelEnd, offsetBy: 2))
             else { return false }
             let destinationStart = source.index(labelEnd, offsetBy: 2)
-            let destination = String(source[destinationStart..<destinationEnd])
+            let destination = String(source[destinationStart..<destinationEnd]).replacingOccurrences(
+                of: #"\\([\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e])"#,
+                with: "$1",
+                options: .regularExpression
+            )
             let label = String(source[labelStart..<labelEnd])
             let start = output.utf8.count
             var child = Parser(label)
@@ -489,6 +502,35 @@ private enum InlineMarkdown {
             }
             index = source.index(after: destinationEnd)
             return true
+        }
+
+        private func escapedCharacter(at position: String.Index) -> Character? {
+            guard source[position] == "\\" else { return nil }
+            let next = source.index(after: position)
+            guard next < source.endIndex,
+                  source[next].unicodeScalars.count == 1,
+                  let scalar = source[next].unicodeScalars.first
+            else { return nil }
+            switch scalar.value {
+            case 0x21...0x2f, 0x3a...0x40, 0x5b...0x60, 0x7b...0x7e:
+                return source[next]
+            default:
+                return nil
+            }
+        }
+
+        private func firstDelimiter(_ delimiter: String, from start: String.Index, honoringEscapes: Bool = true) -> String.Index? {
+            var cursor = start
+            while cursor < source.endIndex {
+                if honoringEscapes, escapedCharacter(at: cursor) != nil {
+                    cursor = source.index(cursor, offsetBy: 2)
+                } else if source[cursor...].hasPrefix(delimiter) {
+                    return cursor
+                } else {
+                    cursor = source.index(after: cursor)
+                }
+            }
+            return nil
         }
 
         private func isSafeLink(_ value: String) -> Bool {
