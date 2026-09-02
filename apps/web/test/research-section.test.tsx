@@ -47,7 +47,7 @@ beforeEach(() => {
 
 describe("research workspace", () => {
   it("browses the linked user's Semble collections and Margin annotations", async () => {
-    render(<ResearchSection />);
+    render(<ResearchSection onUseInPost={vi.fn()} />);
 
     expect(await screen.findByRole("heading", { name: "Things to write about" })).toBeInTheDocument();
     expect(screen.getByText("A promising source")).toBeInTheDocument();
@@ -67,7 +67,7 @@ describe("research workspace", () => {
       margin: { annotations: [] },
     });
 
-    render(<ResearchSection />);
+    render(<ResearchSection onUseInPost={vi.fn()} />);
 
     expect(await screen.findByText("Semble records could not be loaded.")).toBeInTheDocument();
     expect(screen.getByText("No Semble collections found")).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("research workspace", () => {
       .mockRejectedValueOnce(new Error("Research service unavailable"))
       .mockResolvedValueOnce({ semble: { collections: [] }, margin: { annotations: [] } });
 
-    render(<ResearchSection />);
+    render(<ResearchSection onUseInPost={vi.fn()} />);
 
     expect(await screen.findByText("Research service unavailable")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
@@ -107,7 +107,7 @@ describe("research workspace", () => {
       margin: { annotations: [] },
     });
 
-    render(<ResearchSection />);
+    render(<ResearchSection onUseInPost={vi.fn()} />);
 
     expect(await screen.findByText("Untrusted item")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Open source/ })).not.toBeInTheDocument();
