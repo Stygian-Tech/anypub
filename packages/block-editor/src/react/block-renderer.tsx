@@ -230,7 +230,8 @@ function renderMarkdownLines(lines: string[]) {
 
 function renderInlineMarkdown(text: string) {
   const nodes: React.ReactNode[] = [];
-  const pattern = /(!?\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\+\+[^+]+\+\+|\*[^*]+\*|_[^_]+_)/g;
+  // Consume escapes before syntax so literal imported text cannot become a link or style.
+  const pattern = /\\[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]|!?\[(?:\\.|[^\]\\])+\]\((?:\\.|[^)\\])+\)|`[^`]+`|\*\*(?:\\.|[^*\\])+\*\*|__(?:\\.|[^_\\])+__|~~(?:\\.|[^~\\])+~~|\+\+(?:\\.|[^+\\])+\+\+|\*(?:\\.|[^*\\])+\*|_(?:\\.|[^_\\])+_/g;
   let lastIndex = 0;
 
   for (const match of text.matchAll(pattern)) {
@@ -252,20 +253,25 @@ function renderInlineMarkdown(text: string) {
 }
 
 function renderInlineToken(token: string, key: number) {
-  const image = token.match(/^!\[([^\]]+)\]\(([^)]+)\)$/);
-  if (image) {
-    return <span key={key} className="text-muted-foreground italic">{image[1]}</span>;
+  if (token.startsWith("\\")) {
+    return token.slice(1);
   }
 
-  const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+  const image = token.match(/^!\[((?:\\.|[^\]\\])+)\]\(((?:\\.|[^)\\])+)\)$/);
+  if (image) {
+    return <span key={key} className="text-muted-foreground italic">{unescapeMarkdown(image[1] ?? "")}</span>;
+  }
+
+  const link = token.match(/^\[((?:\\.|[^\]\\])+)\]\(((?:\\.|[^)\\])+)\)$/);
   if (link) {
-    const href = safeMarkdownHref(link[2] ?? "");
+    const label = unescapeMarkdown(link[1] ?? "");
+    const href = safeMarkdownHref(unescapeMarkdown(link[2] ?? ""));
     if (!href) {
-      return <span key={key}>{link[1]}</span>;
+      return <span key={key}>{label}</span>;
     }
     return (
       <a key={key} href={href} className="underline underline-offset-2" onClick={(event) => event.preventDefault()}>
-        {link[1]}
+        {label}
       </a>
     );
   }
@@ -275,22 +281,26 @@ function renderInlineToken(token: string, key: number) {
   }
 
   if (token.startsWith("**")) {
-    return <strong key={key} className="font-semibold">{token.slice(2, -2)}</strong>;
+    return <strong key={key} className="font-semibold">{unescapeMarkdown(token.slice(2, -2))}</strong>;
   }
 
   if (token.startsWith("__")) {
-    return <strong key={key} className="font-semibold">{token.slice(2, -2)}</strong>;
+    return <strong key={key} className="font-semibold">{unescapeMarkdown(token.slice(2, -2))}</strong>;
   }
 
   if (token.startsWith("~~")) {
-    return <del key={key} className="line-through">{token.slice(2, -2)}</del>;
+    return <del key={key} className="line-through">{unescapeMarkdown(token.slice(2, -2))}</del>;
   }
 
   if (token.startsWith("++")) {
-    return <u key={key} className="underline underline-offset-2">{token.slice(2, -2)}</u>;
+    return <u key={key} className="underline underline-offset-2">{unescapeMarkdown(token.slice(2, -2))}</u>;
   }
 
-  return <em key={key} className="italic">{token.slice(1, -1)}</em>;
+  return <em key={key} className="italic">{unescapeMarkdown(token.slice(1, -1))}</em>;
+}
+
+function unescapeMarkdown(text: string) {
+  return text.replace(/\\([\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e])/g, "$1");
 }
 
 function safeMarkdownHref(href: string) {

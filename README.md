@@ -41,6 +41,14 @@ instead of uploading a copy. Images that cannot be downloaded degrade to links, 
 
 AT Protocol accounts are linked through discovery, PAR, PKCE, DPoP-bound token exchange, encrypted token/key persistence, DPoP nonce retry, and refresh-token rotation. Existing accounts created before these fields and scopes were added must reconnect. Production startup requires `TOKEN_ENCRYPTION_KEY` to be valid base64 containing at least 32 bytes.
 
+## Research
+
+The Research tab shows the linked account’s Semble collections and Margin notes. Choose **Use in post**
+on an item to select its quote, source link, or comment and preview the content. Add it to the end of
+an existing draft, or start a new draft in a chosen publication; either action opens the post editor.
+Existing draft writing and metadata are preserved. Published, scheduled, and publishing posts are
+excluded from insertion. Research source records are unchanged, and publication remains a separate action.
+
 ## Development
 
 ```bash

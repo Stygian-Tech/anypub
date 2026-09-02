@@ -56,8 +56,12 @@ function showDialog(overrides: Partial<ComponentProps<typeof ResearchPostDialog>
     onOpenChange,
     ...overrides,
   };
-  render(<ResearchPostDialog {...props} />);
-  return { onSubmit: props.onSubmit, onOpenChange: props.onOpenChange };
+  const { rerender } = render(<ResearchPostDialog {...props} />);
+  return {
+    onSubmit: props.onSubmit,
+    onOpenChange: props.onOpenChange,
+    updateProps: (next: Partial<ComponentProps<typeof ResearchPostDialog>>) => rerender(<ResearchPostDialog {...props} {...next} />),
+  };
 }
 
 describe("adding research to a post", () => {
@@ -145,6 +149,63 @@ describe("adding research to a post", () => {
     expect(screen.getByRole("button", { name: "Create draft" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Create draft" }));
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("uses a publication that loads after the dialog opens", async () => {
+    const { onSubmit, updateProps } = showDialog({ drafts: [], publications: [] });
+    expect(screen.getByRole("button", { name: "Create draft" })).toBeDisabled();
+
+    updateProps({ publications: [publication] });
+
+    expect(screen.getByLabelText("Publication", { exact: true })).toHaveValue(publication.uri);
+    expect(screen.getByRole("button", { name: "Create draft" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Create draft" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      destination: { type: "new", publicationURI: publication.uri },
+    })));
+  });
+
+  it("submits the visible publication when discovery replaces the previous selection", async () => {
+    const { onSubmit, updateProps } = showDialog({ drafts: [], publications: [publication] });
+    expect(screen.getByLabelText("Publication", { exact: true })).toHaveValue(publication.uri);
+
+    updateProps({ publications: [otherPublication] });
+
+    expect(screen.getByLabelText("Publication", { exact: true })).toHaveValue(otherPublication.uri);
+    expect(screen.getByRole("button", { name: "Create draft" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Create draft" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      destination: { type: "new", publicationURI: otherPublication.uri },
+    })));
+  });
+
+  it("uses an existing draft that loads while the dialog is open", async () => {
+    const { onSubmit, updateProps } = showDialog({ drafts: [] });
+    fireEvent.click(screen.getByRole("radio", { name: "Existing draft" }));
+    expect(screen.getByRole("button", { name: "Add to draft" })).toBeDisabled();
+
+    updateProps({ drafts: [draft] });
+
+    expect(screen.getByLabelText("Draft", { exact: true })).toHaveValue(draft.id);
+    expect(screen.getByRole("button", { name: "Add to draft" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add to draft" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      destination: { type: "existing", draftID: draft.id },
+    })));
+  });
+
+  it("submits the visible draft when the previous destination becomes unavailable", async () => {
+    const { onSubmit, updateProps } = showDialog({ drafts: [draft] });
+    expect(screen.getByLabelText("Draft", { exact: true })).toHaveValue(draft.id);
+
+    updateProps({ drafts: [otherDraft] });
+
+    expect(screen.getByLabelText("Draft", { exact: true })).toHaveValue(otherDraft.id);
+    expect(screen.getByRole("button", { name: "Add to draft" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add to draft" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      destination: { type: "existing", draftID: otherDraft.id },
+    })));
   });
 
   it("allows a source link without a quote or comment", async () => {

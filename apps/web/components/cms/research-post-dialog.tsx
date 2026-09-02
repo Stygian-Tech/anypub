@@ -30,9 +30,12 @@ export function ResearchPostDialog({ material, drafts, publications, onOpenChang
   const submitting = React.useRef(false);
   const [error, setError] = React.useState("");
   const markdown = researchMarkdown(material, parts);
+  const selectedDraftID = drafts.some((draft) => draft.id === draftID) ? draftID : drafts[0]?.id ?? "";
+  const selectedPublicationURI = publications.some((publication) => publication.uri === publicationURI)
+    ? publicationURI : publications[0]?.uri ?? "";
   const hasDestination = destination === "existing"
-    ? drafts.some((draft) => draft.id === draftID)
-    : publications.some((publication) => publication.uri === publicationURI);
+    ? Boolean(selectedDraftID)
+    : Boolean(selectedPublicationURI);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -44,7 +47,7 @@ export function ResearchPostDialog({ material, drafts, publications, onOpenChang
       const saved = await onSubmit({
         title: material.title,
         markdown,
-        destination: destination === "existing" ? { type: "existing", draftID } : { type: "new", publicationURI },
+        destination: destination === "existing" ? { type: "existing", draftID: selectedDraftID } : { type: "new", publicationURI: selectedPublicationURI },
       });
       if (saved) onOpenChange(false);
       else setError("Could not save this research to your draft. Please try again.");
@@ -98,7 +101,7 @@ export function ResearchPostDialog({ material, drafts, publications, onOpenChang
             {destination === "existing" ? drafts.length ? (
               <Field>
                 <FieldLabel htmlFor="research-draft">Draft</FieldLabel>
-                <select id="research-draft" value={draftID} onChange={(event) => setDraftID(event.target.value)} className="bg-background h-11 w-full min-w-0 rounded-md border px-3 text-sm">
+                <select id="research-draft" value={selectedDraftID} onChange={(event) => setDraftID(event.target.value)} className="bg-background h-11 w-full min-w-0 rounded-md border px-3 text-sm">
                   {drafts.map((draft) => <option key={draft.id} value={draft.id}>{draft.title || "Untitled article"} · {publications.find((publication) => publication.uri === draft.publicationURI)?.name ?? draft.publicationURL}</option>)}
                 </select>
                 <p className="text-muted-foreground text-xs">Appends to the end of your draft. Your existing writing stays in place.</p>
@@ -106,7 +109,7 @@ export function ResearchPostDialog({ material, drafts, publications, onOpenChang
             ) : <p className="text-muted-foreground text-sm">No editable drafts yet. Choose New draft to start a post.</p> : publications.length ? (
               <Field>
                 <FieldLabel htmlFor="research-publication">Publication</FieldLabel>
-                <select id="research-publication" value={publicationURI} onChange={(event) => setPublicationURI(event.target.value)} className="bg-background h-11 w-full min-w-0 rounded-md border px-3 text-sm">
+                <select id="research-publication" value={selectedPublicationURI} onChange={(event) => setPublicationURI(event.target.value)} className="bg-background h-11 w-full min-w-0 rounded-md border px-3 text-sm">
                   {publications.map((publication) => <option key={publication.uri} value={publication.uri}>{publication.name}</option>)}
                 </select>
                 <p className="text-muted-foreground text-xs">Starts a draft with this source’s title and your selected material.</p>
