@@ -29,7 +29,7 @@ func (s *Server) assets(w http.ResponseWriter, r *http.Request) (any, error) {
 	return out, e
 }
 func (s *Server) storeAsset(ctx context.Context, a Row, data []byte, mime, source string, alt any, width, height int, attribution any, blob Row) (Row, error) {
-	dir := filepath.Join(s.Config.UploadsDir, hash(str(a["did"])))
+	dir := filepath.Join(s.Config.UploadsDir, hexHash(str(a["did"])))
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		return nil, e
 	}

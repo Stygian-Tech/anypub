@@ -6,10 +6,12 @@ import (
 	"fmt"
 	anypub "github.com/stygian-tech/anypub-kit"
 	"github.com/stygian-tech/anypub/services/backend/internal/atproto"
+	"golang.org/x/text/unicode/norm"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 func (s *Server) writeRecord(ctx context.Context, a Row, collection, rkey string, record Row) (Row, error) {
@@ -65,10 +67,16 @@ func documentInput(d Row, cover, content Row, text string, pckt bool) Row {
 		published = now()
 	}
 	in := Row{"site": d["publication_uri"], "title": d["title"], "publishedAt": iso(published), "textContent": text, "updatedAt": iso(now())}
-	for k, v := range map[string]any{"path": d["path"], "description": d["excerpt"], "coverImage": cover, "content": content} {
+	for k, v := range map[string]any{"path": d["path"], "description": d["excerpt"]} {
 		if v != nil {
 			in[k] = v
 		}
+	}
+	if cover != nil {
+		in["coverImage"] = cover
+	}
+	if content != nil {
+		in["content"] = content
 	}
 	tags := array(parsed(d["tags_json"]))
 	if len(tags) > 0 || pckt {
@@ -90,6 +98,12 @@ func publishingURI(d Row, field string) string {
 var slugRE = regexp.MustCompile(`[^a-z0-9]+`)
 
 func slug(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Mn, r) {
+			return -1
+		}
+		return r
+	}, norm.NFKD.String(s))
 	return strings.Trim(slugRE.ReplaceAllString(strings.ToLower(s), "-"), "-")
 }
 func pcktPath(d Row, update bool) string {
@@ -280,6 +294,9 @@ func (s *Server) Publish(ctx context.Context, d Row) (result Row, err error) {
 			continue
 		}
 		if !strings.HasPrefix(b.URL, "article-asset://") {
+			if host == "markpub" || host == "unknown" {
+				continue
+			}
 			return nil, fail(422, "Upload remote images before publishing native article content")
 		}
 		id := strings.ToUpper(strings.TrimPrefix(b.URL, "article-asset://"))
@@ -468,6 +485,16 @@ func (s *Server) calendarDelete(ctx context.Context, d Row) error {
 func (s *Server) Unpublish(ctx context.Context, d Row) error {
 	s.publishMu.Lock()
 	defer s.publishMu.Unlock()
+	fresh, e := s.Store.One(ctx, "drafts", "WHERE id=? AND account_did=?", d["id"], d["account_did"])
+	if e != nil {
+		return fail(404, "Draft not found")
+	}
+	for k, v := range fresh {
+		d[k] = v
+	}
+	return s.unpublishLocked(ctx, d)
+}
+func (s *Server) unpublishLocked(ctx context.Context, d Row) error {
 	if str(d["document_uri"]) == "" {
 		return nil
 	}
@@ -542,7 +569,8 @@ func (s *Server) RunScheduled(ctx context.Context) error {
 }
 func (s *Server) StartScheduler(ctx context.Context) {
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		_ = s.RunScheduled(ctx)
+		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {

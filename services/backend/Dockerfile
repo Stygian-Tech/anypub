@@ -1,27 +1,15 @@
-FROM swift:6.2-noble AS build
-
+FROM golang:1.26.6-bookworm AS build
 WORKDIR /build
-COPY Package.swift Package.resolved ./
-RUN swift package resolve
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o /anypub ./cmd/anypub
 
-COPY Sources ./Sources
-COPY Tests ./Tests
-RUN swift build -c release --static-swift-stdlib
-
-FROM ubuntu:noble
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libjemalloc2 tzdata \
-    && rm -rf /var/lib/apt/lists/*
-
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/* && mkdir -p /data/uploads
 WORKDIR /app
-COPY --from=build /build/.build/release/App /usr/local/bin/App
-
-ENV ANYPUB_DATA_DIR=/data \
-    SQLITE_PATH=/data/anypub.sqlite \
-    UPLOADS_DIR=/data/uploads \
-    PORT=8080
-
+COPY --from=build /anypub /usr/local/bin/anypub
+ENV ANYPUB_DATA_DIR=/data SQLITE_PATH=/data/anypub.sqlite UPLOADS_DIR=/data/uploads PORT=8080 APP_ENV=production
 EXPOSE 8080
-ENTRYPOINT ["App"]
-CMD ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["/usr/local/bin/anypub"]

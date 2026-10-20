@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -145,7 +146,7 @@ func decode(r *http.Request) (Row, error) {
 		return nil, fail(400, "Expected a JSON object")
 	}
 	var extra any
-	if d.Decode(&extra) == nil {
+	if e := d.Decode(&extra); e != io.EOF {
 		return nil, fail(400, "Expected one JSON object")
 	}
 	return input, nil
@@ -188,13 +189,17 @@ func token() string {
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
-func hash(t string) string { h := sha256.Sum256([]byte(t)); return hex.EncodeToString(h[:]) }
+func hash(t string) string {
+	h := sha256.Sum256([]byte(t))
+	return base64.StdEncoding.EncodeToString(h[:])
+}
+func hexHash(t string) string { h := sha256.Sum256([]byte(t)); return hex.EncodeToString(h[:]) }
 func (s *Server) session(r *http.Request) (Row, error) {
 	c, e := r.Cookie("anypub_session")
 	if e != nil {
 		return nil, fail(401, "Sign in to continue")
 	}
-	row, e := s.Store.One(r.Context(), "browser_sessions", "WHERE token_hash=?", hash(c.Value))
+	row, e := s.Store.One(r.Context(), "browser_sessions", "WHERE token_hash IN (?,?)", hash(c.Value), hexHash(c.Value))
 	if e != nil {
 		return nil, fail(401, "Sign in to continue")
 	}

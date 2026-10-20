@@ -214,8 +214,14 @@ func (s *Server) deleteDraft(w http.ResponseWriter, r *http.Request) (any, error
 	if e != nil {
 		return nil, e
 	}
+	s.publishMu.Lock()
+	defer s.publishMu.Unlock()
+	d, e = s.Store.One(r.Context(), "drafts", "WHERE id=? AND account_did=?", d["id"], d["account_did"])
+	if e != nil {
+		return nil, fail(404, "Draft not found")
+	}
 	if str(d["document_uri"]) != "" {
-		e = s.Unpublish(r.Context(), d)
+		e = s.unpublishLocked(r.Context(), d)
 	} else {
 		e = s.calendarDelete(r.Context(), d)
 	}

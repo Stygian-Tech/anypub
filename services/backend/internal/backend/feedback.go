@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/rivo/uniseg"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
-	"unicode/utf8"
 )
 
 const feedbackBoardURI = "at://did:plc:qy5pluw2bsuq2x6albsgkvx3/app.userinput.space/3msw5mogjcr2x"
@@ -164,10 +164,10 @@ func parseFeedbackInput(in Row) (feedbackInput, error) {
 	if out.title == "" {
 		return out, fail(422, "Add a title for your feedback")
 	}
-	if utf8.RuneCountInString(out.title) > 200 {
+	if uniseg.GraphemeClusterCount(out.title) > 200 {
 		return out, fail(422, "Feedback titles must be 200 characters or fewer")
 	}
-	if utf8.RuneCountInString(out.body) > 10000 {
+	if uniseg.GraphemeClusterCount(out.body) > 10000 {
 		return out, fail(422, "Feedback details must be 10,000 characters or fewer")
 	}
 	seen := map[string]bool{}

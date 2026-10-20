@@ -21,18 +21,15 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) (any, error) {
 	return m, nil
 }
 func (s *Server) safeRedirect(target string) string {
+	fallback := strings.TrimRight(s.Config.WebURL, "/") + "/editor"
 	u, e := url.Parse(target)
-	if e != nil || u.User != nil || u.Fragment != "" {
-		return s.Config.WebURL
+	web, e2 := url.Parse(s.Config.WebURL)
+	if e != nil || e2 != nil || u.User != nil || u.Fragment != "" || u.Scheme != web.Scheme || u.Host != web.Host || u.Path != "/editor" {
+		return fallback
 	}
-	origin := u.Scheme + "://" + u.Host
-	for _, a := range append(s.Config.AllowedOrigins, s.Config.WebURL) {
-		if origin == strings.TrimRight(strings.TrimSpace(a), "/") {
-			return target
-		}
-	}
-	return s.Config.WebURL
+	return target
 }
+
 func (s *Server) authStart(w http.ResponseWriter, r *http.Request) (any, error) {
 	in, e := decode(r)
 	if e != nil {
@@ -244,7 +241,7 @@ func (s *Server) accounts(w http.ResponseWriter, r *http.Request) (any, error) {
 				a["display_name"] = record.Value["displayName"]
 				a["avatar_cid"] = nullable(blobCID(record.Value["avatar"]))
 				a["updated_at"] = now()
-				_ = s.Store.Save(r.Context(), "linked_accounts", a)
+				_, _ = s.Store.DB.ExecContext(r.Context(), "UPDATE linked_accounts SET display_name=?,avatar_cid=?,updated_at=? WHERE did=?", a["display_name"], a["avatar_cid"], a["updated_at"], a["did"])
 			}
 		}
 	}

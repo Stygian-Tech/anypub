@@ -3,6 +3,9 @@ package backend
 import (
 	"encoding/json"
 	anypub "github.com/stygian-tech/anypub-kit"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -112,7 +115,21 @@ func block(source string) anypub.MarkdownBlock {
 	switch {
 	case strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~"):
 		b.Kind = "code"
-		b.Language = strings.TrimSpace(strings.Split(t, "\n")[0][3:])
+		first := strings.Split(t, "\n")[0]
+		marker := first[:1]
+		length := 0
+		for length < len(first) && first[length:length+1] == marker {
+			length++
+		}
+		b.Language = strings.TrimSpace(first[length:])
+		lines := strings.Split(t, "\n")[1:]
+		if len(lines) > 0 {
+			last := strings.TrimSpace(lines[len(lines)-1])
+			if len(last) >= length && strings.Trim(last, marker) == "" {
+				lines = lines[:len(lines)-1]
+			}
+		}
+		b.Source = strings.Join(lines, "\n")
 	case imageRE.MatchString(t):
 		m := imageRE.FindStringSubmatch(t)
 		b.Kind = "image"
@@ -126,6 +143,7 @@ func block(source string) anypub.MarkdownBlock {
 	case headingRE.MatchString(t):
 		b.Kind = "heading"
 		b.HeadingLevel = len(headingRE.FindStringSubmatch(t)[1])
+		b.Source = headingRE.ReplaceAllString(t, "")
 	case strings.HasPrefix(t, ">"):
 		b.Kind = "quote"
 	case listRE.MatchString(source):
@@ -158,55 +176,86 @@ func markdownBlocks(markdown, snapshotJSON string) []anypub.MarkdownBlock {
 			return out
 		}
 	}
-	md := strings.ReplaceAll(strings.ReplaceAll(markdown, "\r\n", "\n"), "\r", "\n")
-	lines := strings.Split(md, "\n")
+	source := []byte(strings.ReplaceAll(strings.ReplaceAll(markdown, "\r\n", "\n"), "\r", "\n"))
+	doc := goldmark.New().Parser().Parse(text.NewReader(source))
 	out := []anypub.MarkdownBlock{}
-	buf := []string{}
-	fence := ""
-	flush := func() {
-		if len(buf) > 0 {
-			out = append(out, block(strings.Join(buf, "\n")))
-			buf = nil
+	lines := func(n ast.Node) string {
+		var b strings.Builder
+		for i := 0; i < n.Lines().Len(); i++ {
+			seg := n.Lines().At(i)
+			b.Write(seg.Value(source))
 		}
+		return strings.TrimRight(b.String(), "\n")
 	}
-	for _, line := range lines {
-		t := strings.TrimSpace(line)
-		if fence != "" {
-			buf = append(buf, line)
-			if strings.HasPrefix(t, fence) {
-				flush()
-				fence = ""
+	var appendNode func(ast.Node, int)
+	appendNode = func(n ast.Node, level int) {
+		switch x := n.(type) {
+		case *ast.Heading:
+			out = append(out, anypub.MarkdownBlock{Kind: "heading", Source: lines(x), HeadingLevel: x.Level})
+		case *ast.FencedCodeBlock:
+			language := ""
+			if x.Info != nil {
+				language = string(x.Info.Segment.Value(source))
 			}
-			continue
+			out = append(out, anypub.MarkdownBlock{Kind: "code", Source: lines(x), Language: language})
+		case *ast.CodeBlock:
+			out = append(out, anypub.MarkdownBlock{Kind: "code", Source: lines(x)})
+		case *ast.ThematicBreak:
+			out = append(out, anypub.MarkdownBlock{Kind: "thematic-break", Source: "---"})
+		case *ast.List:
+			ordered := x.IsOrdered()
+			index := x.Start
+			for child := x.FirstChild(); child != nil; child = child.NextSibling() {
+				first := child.FirstChild()
+				source := ""
+				if first != nil {
+					source = lines(first)
+				}
+				kind, marker := "unordered-list", "- "
+				if ordered {
+					kind = "ordered-list"
+					marker = strconv.Itoa(index) + ". "
+				}
+				out = append(out, anypub.MarkdownBlock{Kind: kind, Source: strings.Repeat("\t", level) + marker + source, ListLevel: level, ListStart: index})
+				index++
+				if first != nil {
+					for sub := first.NextSibling(); sub != nil; sub = sub.NextSibling() {
+						appendNode(sub, level+1)
+					}
+				}
+			}
+		case *ast.Blockquote:
+			parts := []string{}
+			var collect func(ast.Node)
+			collect = func(c ast.Node) {
+				if c.Type() == ast.TypeBlock && c.Lines().Len() > 0 {
+					for _, line := range strings.Split(lines(c), "\n") {
+						parts = append(parts, "> "+line)
+					}
+					return
+				}
+				for sub := c.FirstChild(); sub != nil; sub = sub.NextSibling() {
+					collect(sub)
+				}
+			}
+			collect(x)
+			out = append(out, anypub.MarkdownBlock{Kind: "quote", Source: strings.Join(parts, "\n")})
+		default:
+			if n.Lines().Len() > 0 {
+				out = append(out, block(lines(n)))
+			} else {
+				for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+					appendNode(child, level)
+				}
+			}
 		}
-		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
-			flush()
-			fence = t[:3]
-			buf = append(buf, line)
-			continue
-		}
-		if t == "" {
-			flush()
-			continue
-		}
-		if listRE.MatchString(line) {
-			flush()
-			out = append(out, block(line))
-			continue
-		}
-		if headingRE.MatchString(t) || imageRE.MatchString(t) || embedURL(t) != "" || thematicRE.MatchString(t) {
-			flush()
-			out = append(out, block(line))
-			continue
-		}
-		if len(buf) > 0 && strings.HasPrefix(strings.TrimSpace(buf[0]), ">") != strings.HasPrefix(t, ">") {
-			flush()
-		}
-		buf = append(buf, line)
 	}
-	flush()
+	for n := doc.FirstChild(); n != nil; n = n.NextSibling() {
+		appendNode(n, 0)
+	}
 	return out
 }
+
 func plainMarkdown(md string) string {
 	blocks := markdownBlocks(md, "")
 	out := []string{}
@@ -220,21 +269,14 @@ func plainMarkdown(md string) string {
 		case "thematic-break":
 			continue
 		case "heading":
-			source = headingRE.ReplaceAllString(source, "")
+			source = b.Source
 		case "unordered-list", "ordered-list":
 			source = listRE.ReplaceAllString(source, "")
 			source = regexp.MustCompile(`^\[[xX ]\]\s*`).ReplaceAllString(source, "")
 		case "quote":
 			source = regexp.MustCompile(`(?m)^\s*>\s?`).ReplaceAllString(source, "")
 		case "code":
-			l := strings.Split(source, "\n")
-			if len(l) > 1 {
-				l = l[1:]
-			}
-			if len(l) > 0 && (strings.TrimSpace(l[len(l)-1]) == "```" || strings.TrimSpace(l[len(l)-1]) == "~~~") {
-				l = l[:len(l)-1]
-			}
-			source = strings.Join(l, "\n")
+			source = b.Source
 		}
 		if b.Kind != "code" {
 			source = str(anypub.ArticleRichText(source, "")["plaintext"])
