@@ -70,7 +70,11 @@ func (c *Client) StartOAuth(ctx context.Context, identifier, redirectURI string)
 	if err != nil {
 		return start, err
 	}
-	values := url.Values{"client_id": {c.ClientID()}, "redirect_uri": {redirectURI}, "response_type": {"code"}, "scope": {CMSScopes}, "state": {state}, "code_challenge": {challenge}, "code_challenge_method": {"S256"}, "login_hint": {strings.TrimSpace(identifier)}}
+	loginHint := identity.Handle
+	if loginHint == "" {
+		loginHint = identity.DID
+	}
+	values := url.Values{"client_id": {c.ClientID()}, "redirect_uri": {redirectURI}, "response_type": {"code"}, "scope": {CMSScopes}, "state": {state}, "code_challenge": {challenge}, "code_challenge_method": {"S256"}, "login_hint": {loginHint}}
 	var par struct {
 		RequestURI string `json:"request_uri"`
 		ExpiresIn  int64  `json:"expires_in"`

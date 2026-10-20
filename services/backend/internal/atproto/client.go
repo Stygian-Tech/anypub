@@ -231,7 +231,7 @@ func didDocumentURL(did string) (string, error) {
 		if suffix == "" || strings.ContainsAny(suffix, "/?#:%") {
 			return "", errors.New("invalid PLC DID")
 		}
-		return "https://plc.directory/" + suffix, nil
+		return "https://plc.directory/" + did, nil
 	}
 	if strings.HasPrefix(did, "did:web:") {
 		parts := strings.Split(strings.TrimPrefix(did, "did:web:"), ":")
