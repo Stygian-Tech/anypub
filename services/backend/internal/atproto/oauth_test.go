@@ -300,3 +300,45 @@ func TestPublicReadAndRawBlob(t *testing.T) {
 		t.Fatal(string(data), err)
 	}
 }
+
+func TestDirectDIDLoginHintIgnoresStaleHandle(t *testing.T) {
+	c := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Host + r.URL.Path {
+		case "plc.directory/did:plc:alice":
+			writeJSON(w, map[string]any{"id": "did:plc:alice", "alsoKnownAs": []string{"at://old.example"}, "service": []any{map[string]any{"id": "#atproto_pds", "type": "AtprotoPersonalDataServer", "serviceEndpoint": "https://pds.example"}}})
+		case "pds.example/.well-known/oauth-protected-resource":
+			writeJSON(w, map[string]any{"authorization_servers": []string{"https://auth.example"}})
+		case "auth.example/.well-known/oauth-authorization-server":
+			writeJSON(w, map[string]any{"issuer": "https://auth.example", "authorization_endpoint": "https://auth.example/authorize", "token_endpoint": "https://auth.example/token", "pushed_authorization_request_endpoint": "https://auth.example/par", "scopes_supported": []string{"atproto"}, "dpop_signing_alg_values_supported": []string{"ES256"}, "client_id_metadata_document_supported": true})
+		case "auth.example/par":
+			w.Header().Set("DPoP-Nonce", "server-nonce")
+			if err := r.ParseForm(); err != nil {
+				t.Error(err)
+			}
+			if got := r.Form.Get("login_hint"); got != "did:plc:alice" {
+				t.Errorf("DID login used stale hint %q", got)
+			}
+			writeJSON(w, map[string]any{"request_uri": "urn:example:request", "expires_in": 90})
+		default:
+			t.Errorf("unexpected lookup %s", r.URL)
+			http.Error(w, "unexpected", 500)
+		}
+	})
+	if _, err := c.StartOAuth(context.Background(), "did:plc:alice", ""); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestXRPCPreservesIntegerExtensions(t *testing.T) {
+	c := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"value":{"extension":9007199254740993}}`)
+	})
+	session := Session{PDSURL: "https://pds.example"}
+	var out map[string]any
+	if err := c.XRPC(context.Background(), &session, "GET", "com.atproto.repo.getRecord", nil, nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil || !strings.Contains(string(encoded), "9007199254740993") {
+		t.Fatalf("integer changed: %s %v", encoded, err)
+	}
+}
