@@ -58,6 +58,10 @@ struct PublisherService: Sendable {
             offprintDocumentRkey = nil
         }
 
+        // Reject invalid metadata before uploading blobs or changing a published draft's state.
+        // Validate again with the prepared content when constructing the final record below.
+        _ = try records.documentRecord(draft: draft, cover: nil, pcktCompatible: host == .pckt)
+
         let canonical = try CanonicalDocumentLoader.load(draft: draft)
         let bodyImages = try await publishedBodyImages(
             for: canonical,
