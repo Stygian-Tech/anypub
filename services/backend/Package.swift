@@ -7,6 +7,7 @@ let package = Package(
         .macOS(.v14),
     ],
     dependencies: [
+        .package(url: "https://github.com/Stygian-Tech/anypub-kit.git", revision: "797c62a3d5b04c2d0e03b81215e6d18c57794354"),
         .package(url: "https://github.com/vapor/vapor.git", from: "4.89.0"),
         .package(url: "https://github.com/vapor/fluent.git", from: "4.8.0"),
         .package(url: "https://github.com/vapor/fluent-sqlite-driver.git", from: "4.2.0"),
@@ -18,6 +19,7 @@ let package = Package(
             name: "App",
             dependencies: [
                 .product(name: "Vapor", package: "vapor"),
+                .product(name: "AnyPubKit", package: "anypub-kit"),
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver"),
                 .product(name: "Crypto", package: "swift-crypto"),

@@ -1,6 +1,14 @@
 {
-  "originHash" : "d0951be0de24f8814873c617bfeac933f024adaf47530e4758467674ac5d230a",
+  "originHash" : "74db5cee45d6eba3409892ff75245a3d440d6c9b29c53724ea6e1488f47b4953",
   "pins" : [
+    {
+      "identity" : "anypub-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Stygian-Tech/anypub-kit.git",
+      "state" : {
+        "revision" : "797c62a3d5b04c2d0e03b81215e6d18c57794354"
+      }
+    },
     {
       "identity" : "async-http-client",
       "kind" : "remoteSourceControl",
