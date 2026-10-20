@@ -6,7 +6,7 @@ AnyPub is a local-first CMS for writing and scheduling articles across a user's 
 
 - `apps/web`: Next.js App Router UI using shadcn-style source components.
 - `packages/block-editor`: publishable `@stygian/markdown-editor` React package; AnyPub-specific image storage stays in `apps/web`.
-- `services/backend`: Swift/Vapor API with Fluent SQLite persistence.
+- `services/backend`: Go HTTP API with SQLite persistence compatible with the existing Fluent database.
 - Drafts, cover assets, OAuth state, publish attempts, and calendar links are stored off-protocol in SQLite and the local filesystem.
 
 ## Publishing Shape
@@ -17,11 +17,19 @@ Published articles use a canonical `site.standard.document` record with shared m
 - Offprint: `app.offprint.content` plus an `app.offprint.document.article` strong-reference wrapper.
 - pckt: `blog.pckt.content` plus a `blog.pckt.document` wrapper linked to the existing `blog.pckt.publication`.
 
-The backend validates the editor's schema-v1 block snapshot, preserves headings, quotes, nested lists, task state, code languages, thematic breaks, and UTF-8-indexed rich-text facets. Legacy Markdown-only drafts use the same canonical parser. Large Leaflet and pckt bodies automatically switch to their lexicon-defined blob modes; Offprint bodies are size-checked before publication.
+The backend validates the editor's schema-v1 block snapshot, preserves headings, quotes, nested lists, task state, code languages, thematic breaks, and UTF-8-indexed rich-text facets. Legacy Markdown-only drafts are parsed on the backend. Large Leaflet and pckt bodies automatically switch to their lexicon-defined blob modes; Offprint bodies are size-checked before publication.
 
-Publishing a known host without a valid adapter is rejected before any remote write. New Offprint and pckt wrapper failures trigger compensating deletion of the canonical document, and wrapper-backed posts remove both records when reverted or deleted.
+Publishing a known host without a valid adapter is rejected before any remote write. Offprint and pckt canonical documents and native wrappers are committed atomically with a repository-head check. Wrapper-backed posts remove both records when unpublished.
 
 Scheduling creates or updates `community.lexicon.calendar.event` records linked to the article URL and document AT-URI when available.
+
+## Shared Go preparation
+
+The backend imports [AnyPubKit](https://github.com/Stygian-Tech/anypub-kit) at an immutable Go module revision. It exposes the stateless Lexicon procedure `POST /xrpc/tech.stygian.anypub.prepare` for publication/document records, native content, offload plans, native wrappers, and live updates. The Social Wire proxies this procedure through its own origin and retains its browser OAuth/DPoP and PDS writes; configure its server-only `ANYPUB_API_URL` to this backend.
+
+The Go backend retains the existing `/api` endpoints and `/health`, SQLite tables, asset directory, browser session cookies, encrypted tokens, and stored DPoP keys. The Docker build context remains `services/backend`. CI no longer needs Swift or an Apple runner.
+
+Before any deployment, take the normal volume snapshot and keep the same `SQLITE_PATH`, `UPLOADS_DIR`, and `TOKEN_ENCRYPTION_KEY`. Go migrations inspect and add missing columns without replaying Fluent's migration history or discarding existing rows. No hosted migration or deployment is performed by this source change.
 
 ## Backfilling published posts
 
@@ -52,7 +60,7 @@ Backend-only:
 
 ```bash
 cd services/backend
-swift run App
+go run ./cmd/anypub
 ```
 
 Full verification:
@@ -67,7 +75,7 @@ GitHub Actions runs path-aware checks for pull requests and pushes to `main` or 
 
 - Changes to `apps/web`, `packages/block-editor`, or the root Bun/Turbo build files run the
   frontend typecheck, lint, complete Vitest suites, and production build.
-- Changes to `services/backend` run the complete Swift test suite and a release build.
+- Changes to `services/backend` run Go formatting, vet, race tests, and build on Linux.
 - Shared CI or workflow changes run both pipelines. Documentation-only changes skip both while
   still passing the stable `Required CI gate` check.
 - Railway development tracks `dev` directly and deploys only the affected service after GitHub CI passes.
