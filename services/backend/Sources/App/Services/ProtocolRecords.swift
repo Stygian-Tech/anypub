@@ -1,129 +1,14 @@
 import Foundation
+import AnyPubKit
 import Vapor
 
-struct ATProtoBlobRef: Codable, Equatable, Sendable {
-    struct Link: Codable, Equatable, Sendable {
-        let link: String
+typealias ATProtoBlobRef = AnyPubKit.ATProtoBlobRef
+typealias StandardSiteDocumentRecord = AnyPubKit.StandardSiteDocumentRecord
+typealias ATProtoTimestamp = AnyPubKit.ATProtoTimestamp
+typealias StrongReference = AnyPubKit.StrongReference
 
-        enum CodingKeys: String, CodingKey {
-            case link = "$link"
-        }
-    }
-
-    let type: String
-    let ref: Link
-    let mimeType: String
-    let size: Int
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case ref
-        case mimeType
-        case size
-    }
-}
-
-struct StandardSiteDocumentRecord: Codable, Equatable, Sendable {
-    let type = "site.standard.document"
-    let site: String
-    let title: String
-    let publishedAt: ATProtoTimestamp
-    let path: String?
-    let tags: [String]?
-    let langs: [String]?
-    let coverImage: ATProtoBlobRef?
-    let description: String?
-    let textContent: String?
-    let content: JSONValue?
-    let updatedAt: ATProtoTimestamp?
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case site
-        case title
-        case publishedAt
-        case path
-        case tags
-        case langs
-        case coverImage
-        case description
-        case textContent
-        case content
-        case updatedAt
-    }
-}
-
-struct ATProtoTimestamp: Codable, Equatable, Sendable {
-    let date: Date
-
-    init(_ date: Date) {
-        self.date = date
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let value = try container.decode(String.self)
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let standard = ISO8601DateFormatter()
-        standard.formatOptions = [.withInternetDateTime]
-        guard let date = fractional.date(from: value) ?? standard.date(from: value) else {
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Invalid AT Protocol timestamp"
-            )
-        }
-        self.date = date
-    }
-
-    func encode(to encoder: Encoder) throws {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        var container = encoder.singleValueContainer()
-        try container.encode(formatter.string(from: date))
-    }
-}
-
-struct StrongReference: Codable, Equatable, Sendable {
-    let type: String?
-    let uri: String
-    let cid: String
-
-    init(uri: String, cid: String, type: String? = nil) {
-        self.type = type
-        self.uri = uri
-        self.cid = cid
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case uri
-        case cid
-    }
-}
-
-struct OffprintArticleRecord: Codable, Equatable, Sendable {
-    let type = "app.offprint.document.article"
-    let document: StrongReference
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case document
-    }
-}
-
-struct PcktDocumentRecord: Codable, Equatable, Sendable {
-    let type = "blog.pckt.document"
-    let document: StrongReference
-    let site: String
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case document
-        case site
-    }
-}
+typealias OffprintArticleRecord = AnyPubKit.OffprintArticleRecord
+typealias PcktDocumentRecord = AnyPubKit.PcktDocumentRecord
 
 struct CalendarEventRecord: Codable, Equatable, Sendable {
     struct EventURI: Codable, Equatable, Sendable {
@@ -198,21 +83,26 @@ struct ProtocolRecordBuilder: Sendable {
         content: JSONValue? = nil,
         textContent: String? = nil,
         pcktCompatible: Bool = false
-    ) -> StandardSiteDocumentRecord {
+    ) throws -> StandardSiteDocumentRecord {
         let tags = draft.tags()
-        return StandardSiteDocumentRecord(
-            site: draft.publicationURI,
-            title: draft.title,
-            publishedAt: ATProtoTimestamp(draft.publishedAt ?? draft.scheduledAt ?? Date()),
-            path: draft.path,
-            tags: tags.isEmpty && !pcktCompatible ? nil : tags,
-            langs: pcktCompatible ? ["en"] : nil,
-            coverImage: cover,
-            description: draft.excerpt,
-            textContent: textContent ?? draft.plaintext,
-            content: content,
-            updatedAt: ATProtoTimestamp(Date())
-        )
+        let now = Date()
+        do {
+            return try AnyPubKit.StandardSiteRecordBuilder().documentRecord(
+                site: draft.publicationURI,
+                title: draft.title,
+                publishedAt: draft.publishedAt ?? draft.scheduledAt ?? now,
+                path: draft.path,
+                tags: tags.isEmpty && !pcktCompatible ? nil : tags,
+                langs: pcktCompatible ? ["en"] : nil,
+                coverImage: cover,
+                description: draft.excerpt,
+                textContent: textContent ?? draft.plaintext,
+                content: content,
+                updatedAt: now
+            )
+        } catch let AnyPubKit.StandardSiteValidationError.invalidField(field, reason) {
+            throw Abort(.unprocessableEntity, reason: "Invalid \(field): \(reason)")
+        }
     }
 
     func calendarEventRecord(draft: Draft, articleURI: String?) -> CalendarEventRecord {

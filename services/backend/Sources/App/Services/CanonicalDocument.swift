@@ -1,60 +1,15 @@
 import Foundation
+import AnyPubKit
 import Vapor
 
-enum InlineFeature: Equatable, Sendable {
-    case bold
-    case italic
-    case code
-    case strikethrough
-    case underline
-    case link(String)
-}
-
-struct InlineSpan: Equatable, Sendable {
-    let byteStart: Int
-    let byteEnd: Int
-    let feature: InlineFeature
-}
-
-struct RichText: Equatable, Sendable {
-    let plaintext: String
-    let spans: [InlineSpan]
-}
-
-enum CanonicalListKind: Equatable, Sendable {
-    case unordered
-    case ordered
-    case task
-}
-
-struct CanonicalListItem: Equatable, Sendable {
-    let content: RichText
-    let checked: Bool?
-    var children: [CanonicalList]
-}
-
-struct CanonicalList: Equatable, Sendable {
-    let kind: CanonicalListKind
-    let start: Int?
-    var items: [CanonicalListItem]
-}
-
-enum CanonicalBlock: Equatable, Sendable {
-    case paragraph(RichText)
-    case heading(level: Int, content: RichText)
-    case quote([RichText])
-    case list(CanonicalList)
-    case code(language: String?, source: String)
-    case image(assetID: UUID, alt: String)
-    case embed(url: String)
-    case thematicBreak
-}
-
-struct CanonicalDocument: Equatable, Sendable {
-    let blocks: [CanonicalBlock]
-    let plaintext: String
-    let markdown: String
-}
+typealias InlineFeature = AnyPubKit.InlineFeature
+typealias InlineSpan = AnyPubKit.InlineSpan
+typealias RichText = AnyPubKit.RichText
+typealias CanonicalListKind = AnyPubKit.CanonicalListKind
+typealias CanonicalListItem = AnyPubKit.CanonicalListItem
+typealias CanonicalList = AnyPubKit.CanonicalList
+typealias CanonicalBlock = AnyPubKit.CanonicalBlock
+typealias CanonicalDocument = AnyPubKit.CanonicalDocument
 
 private struct BlockDocumentSnapshot: Decodable {
     let schemaVersion: Int

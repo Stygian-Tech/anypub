@@ -1,12 +1,7 @@
 import Foundation
+import AnyPubKit
 
-enum PublicationHost: String, Codable, Equatable, Sendable {
-    case leaflet
-    case markpub
-    case offprint
-    case pckt
-    case unknown
-}
+typealias PublicationHost = AnyPubKit.PublicationHost
 
 struct PublicationHostDetector: Sendable {
     static func detect(themeType: String?, themeURI: String? = nil, themeName: String?, publicationURL: String?) -> PublicationHost? {

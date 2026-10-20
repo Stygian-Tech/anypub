@@ -261,13 +261,70 @@ struct AppLogicTests {
             status: .published,
             publishedAt: Date(timeIntervalSince1970: 1_800_000_000)
         )
-        let record = ProtocolRecordBuilder().documentRecord(draft: draft, cover: nil)
+        let record = try ProtocolRecordBuilder().documentRecord(draft: draft, cover: nil)
         #expect(record.site == draft.publicationURI)
         #expect(record.title == "Launch notes")
         #expect(record.path == "/launch")
         #expect(record.tags == ["release"])
         #expect(record.langs == nil)
         #expect(record.textContent == "Launch notes\nBody")
+    }
+
+    @Test("SDK validation remains an actionable HTTP 422 at the consumer boundary")
+    func documentRecordValidationErrors() throws {
+        let draft = try Draft(
+            accountDID: "did:plc:example",
+            publicationURI: "at://did:plc:example/site.standard.publication/abc",
+            publicationURL: "https://example.com", title: "Title", path: "/../secret",
+            excerpt: nil, tags: [], markdown: "Body"
+        )
+        do {
+            _ = try ProtocolRecordBuilder().documentRecord(draft: draft, cover: nil)
+            Issue.record("Expected unsafe draft path to fail validation")
+        } catch let error as Abort {
+            #expect(error.status == .unprocessableEntity)
+            #expect(error.reason == "Invalid path: Expected a relative path without traversal, query, fragment, or authority")
+        }
+    }
+
+    @Test("Consumer keeps lifecycle dates while SDK owns record encoding")
+    func documentRecordLifecycleDates() throws {
+        let scheduled = Date(timeIntervalSince1970: 1_800_000_000)
+        let published = scheduled.addingTimeInterval(-3_600)
+        let draft = try Draft(
+            accountDID: "did:plc:example",
+            publicationURI: "at://did:plc:example/site.standard.publication/abc",
+            publicationURL: "https://example.com", title: "Title", path: "relative-path",
+            excerpt: nil, tags: [], markdown: "Body", scheduledAt: scheduled
+        )
+        let before = Date()
+        let scheduledRecord = try ProtocolRecordBuilder().documentRecord(draft: draft, cover: nil)
+        #expect(scheduledRecord.publishedAt.date == scheduled)
+        #expect(scheduledRecord.tags == nil)
+        #expect(scheduledRecord.path == "relative-path")
+        #expect(try #require(scheduledRecord.updatedAt).date >= before)
+        #expect(try #require(scheduledRecord.updatedAt).date <= Date())
+        draft.publishedAt = published
+        #expect(try ProtocolRecordBuilder().documentRecord(draft: draft, cover: nil).publishedAt.date == published)
+        draft.publishedAt = nil
+        draft.scheduledAt = nil
+        let immediate = try ProtocolRecordBuilder().documentRecord(draft: draft, cover: nil)
+        #expect(immediate.publishedAt == immediate.updatedAt)
+    }
+
+    @Test("Offprint SDK alias keeps the discovery strong-reference payload")
+    func offprintDocumentRecordCompatibility() throws {
+        let record = OffprintArticleRecord(document: StrongReference(
+            uri: "at://did:plc:example/site.standard.document/post", cid: "bafyexample"
+        ))
+        let encoded = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(record))
+        #expect(encoded == .object([
+            "$type": .string("app.offprint.document.article"),
+            "document": .object([
+                "uri": .string("at://did:plc:example/site.standard.document/post"),
+                "cid": .string("bafyexample"),
+            ]),
+        ]))
     }
 
     @Test("pckt document record matches native discovery fields")
@@ -285,7 +342,7 @@ struct AppLogicTests {
             publishedAt: Date(timeIntervalSince1970: 1_800_000_000)
         )
 
-        let record = ProtocolRecordBuilder().documentRecord(
+        let record = try ProtocolRecordBuilder().documentRecord(
             draft: draft,
             cover: nil,
             content: .object(["$type": .string("blog.pckt.content"), "items": .array([])]),
@@ -339,7 +396,7 @@ struct AppLogicTests {
             mimeType: "image/jpeg",
             size: 1_024
         )
-        let record = ProtocolRecordBuilder().documentRecord(draft: draft, cover: cover, content: prepared.content)
+        let record = try ProtocolRecordBuilder().documentRecord(draft: draft, cover: cover, content: prepared.content)
         #expect(record.tags == ["leaflet", "images"])
         #expect(record.coverImage == cover)
         #expect(record.content?.objectValue?["$type"] == .string("pub.leaflet.content"))

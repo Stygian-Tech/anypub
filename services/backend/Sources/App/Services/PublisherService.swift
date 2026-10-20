@@ -87,7 +87,7 @@ struct PublisherService: Sendable {
         do {
             let content = try await preparedContent(prepared, account: account, req: req)
             let cover = try await coverBlob(for: draft, account: account, req: req)
-            let document = records.documentRecord(
+            let document = try records.documentRecord(
                 draft: draft,
                 cover: cover,
                 content: content,
