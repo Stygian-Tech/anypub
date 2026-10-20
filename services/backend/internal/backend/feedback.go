@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -67,8 +68,20 @@ func feedbackCanUpload(scope, mime string) bool {
 	return false
 }
 func (s *Server) resolveFeedbackBoard(ctx context.Context) (Row, error) {
-	data, _, e := s.fetch(ctx, feedbackAPIURL, nil, 2<<20)
+	req, e := http.NewRequestWithContext(ctx, http.MethodGet, feedbackAPIURL, nil)
 	if e != nil {
+		return nil, e
+	}
+	res, e := s.HTTP.Do(req)
+	if e != nil {
+		return nil, fail(502, "The feedback board is temporarily unavailable")
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fail(502, "The feedback board is temporarily unavailable")
+	}
+	data, e := io.ReadAll(io.LimitReader(res.Body, (2<<20)+1))
+	if e != nil || len(data) > 2<<20 {
 		return nil, fail(502, "The feedback board is temporarily unavailable")
 	}
 	var envelope struct {
