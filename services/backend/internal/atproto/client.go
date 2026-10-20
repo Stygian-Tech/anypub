@@ -157,7 +157,7 @@ func (c *Client) getJSON(ctx context.Context, target string, out any) error {
 	if status != 200 {
 		return responseError(status, b)
 	}
-	return json.Unmarshal(b, out)
+	return decodeJSON(b, out)
 }
 
 var handlePattern = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
@@ -252,4 +252,11 @@ func didDocumentURL(did string) (string, error) {
 		return "https://" + host + path, nil
 	}
 	return "", errors.New("unsupported DID method")
+}
+
+// decodeJSON preserves unknown integer fields through read/modify/write and CID generation.
+func decodeJSON(data []byte, out any) error {
+	d := json.NewDecoder(bytes.NewReader(data))
+	d.UseNumber()
+	return d.Decode(out)
 }

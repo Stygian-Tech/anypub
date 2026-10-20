@@ -2,7 +2,6 @@ package atproto
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/url"
 	"slices"
@@ -113,7 +112,7 @@ func (c *Client) postForm(ctx context.Context, target string, values url.Values,
 			return "", errors.New("OAuth server omitted required DPoP nonce")
 		}
 		if status >= 200 && status < 300 {
-			return next, json.Unmarshal(b, out)
+			return next, decodeJSON(b, out)
 		}
 		e := responseError(status, b)
 		if attempt == 0 && e.Code == "use_dpop_nonce" {

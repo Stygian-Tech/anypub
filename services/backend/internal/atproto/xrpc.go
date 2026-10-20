@@ -111,7 +111,7 @@ func (c *Client) xrpc(ctx context.Context, session *Session, method, nsid string
 				*raw = b
 				return nil
 			}
-			return json.Unmarshal(b, out)
+			return decodeJSON(b, out)
 		}
 		failure := responseError(status, b)
 		if authenticated && failure.Code == "use_dpop_nonce" {
