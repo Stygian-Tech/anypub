@@ -25,7 +25,7 @@ Scheduling creates or updates `community.lexicon.calendar.event` records linked 
 
 ## Shared Go preparation
 
-The backend imports [AnyPubKit](https://github.com/Stygian-Tech/anypub-kit) at an immutable Go module revision. It exposes the stateless Lexicon procedure `POST /xrpc/tech.stygian.anypub.prepare` for publication/document records, native content, offload plans, native wrappers, and live updates. The Social Wire proxies this procedure through its own origin and retains its browser OAuth/DPoP and PDS writes; configure its server-only `ANYPUB_API_URL` to this backend.
+The backend imports [AnyPubKit](https://github.com/Stygian-Tech/anypub-kit) at an immutable Go module revision. It exposes the stateless Lexicon procedure `POST /xrpc/at.anypub.prepare` for publication/document records, native content, offload plans, native wrappers, and live updates. The Social Wire proxies this procedure through its own origin and retains its browser OAuth/DPoP and PDS writes; configure its server-only `ANYPUB_API_URL` to this backend.
 
 The Go backend retains the existing `/api` endpoints and `/health`, SQLite tables, asset directory, browser session cookies, encrypted tokens, and stored DPoP keys. The Docker build context remains `services/backend`. CI no longer needs Swift or an Apple runner.
 
