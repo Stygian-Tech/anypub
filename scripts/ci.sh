@@ -24,14 +24,11 @@ bun run test
 echo "==> Frontend build"
 bun run build
 
-echo "==> Swift tests"
+echo "==> Go backend checks"
 (
   cd services/backend
-  swift test --skip-update --enable-swift-testing --disable-xctest --no-parallel
-)
-
-echo "==> Swift release build"
-(
-  cd services/backend
-  swift build -c release --product App --skip-update
+  test -z "$(gofmt -l .)"
+  go vet ./...
+  go test -race ./...
+  go build ./...
 )

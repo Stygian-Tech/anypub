@@ -84,17 +84,24 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    container: swift:6.2-noble
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: services/backend
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: services/backend/go.mod
+          cache-dependency-path: services/backend/go.sum
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./...
       - name: Test
-        run: swift test --skip-update --enable-swift-testing --disable-xctest --no-parallel
-      - name: Release build
-        run: swift build -c release --product App --skip-update
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: Build
+        run: go build ./...
 
   gate:
     name: Required CI gate
